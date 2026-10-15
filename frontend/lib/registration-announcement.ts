@@ -1,4 +1,4 @@
-export const REGISTRATION_DEADLINE_LABEL = "30th September 2026";
+export const REGISTRATION_DEADLINE_LABEL = "31th October 2026";
 /** Inclusive last calendar day for registration (local timezone). */
 export const REGISTRATION_DEADLINE_ISO = "2026-09-30";
 export const OLYMPIAD_YEAR_LABEL = "2026-2027";
