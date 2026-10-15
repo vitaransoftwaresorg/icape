@@ -85,7 +85,7 @@ export default function ContactPage() {
           For registration, payment confirmation, olympiad dates, or school
           support, contact the i-CAPE team using the details below. Schools
           should submit filled forms and payment proof on WhatsApp on or before{" "}
-          <strong className="text-brand">30th September 2026</strong>.
+          <strong className="text-brand">31th October 2026</strong>.
         </p>
 
         <section>
