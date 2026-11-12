@@ -1575,6 +1575,9 @@ export const schoolRegistrationService = {
     }> = [];
 
     if (prepared.length > 0) {
+      // Stagger createdAt so Excel row order is preserved with createdAt DESC
+      // (row 1 = newest → shows first; row N = oldest in this batch).
+      const batchBaseMs = Date.now();
       await prisma.$transaction(async (tx) => {
         await tx.registrationStudent.createMany({
           data: prepared.map((s, i) => ({
@@ -1587,6 +1590,7 @@ export const schoolRegistrationService = {
             imo: s.imo,
             iso: s.iso,
             ieo: s.ieo,
+            createdAt: new Date(batchBaseMs + (prepared.length - i)),
           })),
         });
 
