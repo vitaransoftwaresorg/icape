@@ -11,9 +11,24 @@ import {
   CURRENT_OLYMPIAD_YEAR,
   olympiadYearMeta,
 } from "../lib/olympiad-year";
+import { PAYMENT_DETAILS } from "../lib/payment-details";
 
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+/** Live fee = olympiad program slots × fee per slot (concession or standard). */
+function amountFromOlympiadCounts(
+  imo: number,
+  iso: number,
+  ieo: number,
+  concessionFeePerStudent?: number | null,
+) {
+  const feePerSlot =
+    typeof concessionFeePerStudent === "number" && concessionFeePerStudent > 0
+      ? concessionFeePerStudent
+      : PAYMENT_DETAILS.feeAmount;
+  return (imo + iso + ieo) * feePerSlot;
 }
 
 function queueMail(promise: Promise<unknown>) {
@@ -257,6 +272,24 @@ export const schoolAuthService = {
     const imo = registration?.imoCount ?? 0;
     const iso = registration?.isoCount ?? 0;
     const ieo = registration?.ieoCount ?? 0;
+    const olympiadTotal = imo + iso + ieo;
+    const amountExpected = amountFromOlympiadCounts(
+      imo,
+      iso,
+      ieo,
+      registration?.concessionFeePerStudent,
+    );
+    const registrationWithLivePayment = registration
+      ? {
+          ...registration,
+          payment: registration.payment
+            ? {
+                ...registration.payment,
+                amountExpected,
+              }
+            : null,
+        }
+      : null;
 
     return {
       id: row.id,
@@ -279,11 +312,12 @@ export const schoolAuthService = {
       imoCount: imo,
       isoCount: iso,
       ieoCount: ieo,
-      olympiadTotal: imo + iso + ieo,
+      olympiadTotal,
+      amountExpected,
       olympiadYear: registration?.olympiadYear
         ? olympiadYearMeta(registration.olympiadYear)
         : null,
-      registration,
+      registration: registrationWithLivePayment,
     };
   },
 
@@ -474,6 +508,7 @@ export const schoolAuthService = {
           submittedAt: true,
           updatedAt: true,
           olympiadYear: true,
+          concessionFeePerStudent: true,
           ...countFields,
           payment: {
             select: {
@@ -535,6 +570,30 @@ export const schoolAuthService = {
       const imo = registration?.imoCount ?? 0;
       const iso = registration?.isoCount ?? 0;
       const ieo = registration?.ieoCount ?? 0;
+      const concession =
+        registration && "concessionFeePerStudent" in registration
+          ? (registration.concessionFeePerStudent as number | null)
+          : null;
+      const olympiadTotal = imo + iso + ieo;
+      const amountExpected = amountFromOlympiadCounts(
+        imo,
+        iso,
+        ieo,
+        concession,
+      );
+      const registrationOut =
+        incomplete || !registration
+          ? null
+          : {
+              ...registration,
+              payment:
+                "payment" in registration && registration.payment
+                  ? {
+                      ...registration.payment,
+                      amountExpected,
+                    }
+                  : null,
+            };
       return {
         id: row.id,
         email: row.email,
@@ -543,6 +602,7 @@ export const schoolAuthService = {
         createdAt: row.createdAt,
         updatedAt: registrationUpdatedAt || row.updatedAt,
         registrationCount: row._count.registrations,
+        registrationId: registration?.id || null,
         schoolName: registration?.schoolName || row.name || "",
         schoolCode: registration?.schoolCode || "",
         city: registration?.city || "",
@@ -556,33 +616,63 @@ export const schoolAuthService = {
         imoCount: imo,
         isoCount: iso,
         ieoCount: ieo,
-        olympiadTotal: imo + iso + ieo,
+        olympiadTotal,
+        amountExpected,
+        feePerSlot:
+          typeof concession === "number" && concession > 0
+            ? concession
+            : PAYMENT_DETAILS.feeAmount,
         olympiadYear: registration?.olympiadYear
           ? olympiadYearMeta(registration.olympiadYear)
           : null,
-        registration: incomplete ? null : registration,
+        registration: registrationOut,
       };
     });
 
-    let totals = { imo: 0, iso: 0, ieo: 0, schools: total };
+    let totals = {
+      imo: 0,
+      iso: 0,
+      ieo: 0,
+      total: 0,
+      payment: 0,
+      schools: total,
+    };
     if (approved && activeYear) {
       const registrationFilter = {
         olympiadYear: activeYear,
         status: "APPROVED" as const,
         ...(q ? { schoolAccount: where } : {}),
       };
-      const sums = await prisma.schoolRegistration.aggregate({
+      const feeRows = await prisma.schoolRegistration.findMany({
         where: registrationFilter,
-        _sum: {
+        select: {
           imoCount: true,
           isoCount: true,
           ieoCount: true,
+          concessionFeePerStudent: true,
         },
       });
+      let imoTotal = 0;
+      let isoTotal = 0;
+      let ieoTotal = 0;
+      let paymentTotal = 0;
+      for (const r of feeRows) {
+        imoTotal += r.imoCount;
+        isoTotal += r.isoCount;
+        ieoTotal += r.ieoCount;
+        paymentTotal += amountFromOlympiadCounts(
+          r.imoCount,
+          r.isoCount,
+          r.ieoCount,
+          r.concessionFeePerStudent,
+        );
+      }
       totals = {
-        imo: sums._sum.imoCount ?? 0,
-        iso: sums._sum.isoCount ?? 0,
-        ieo: sums._sum.ieoCount ?? 0,
+        imo: imoTotal,
+        iso: isoTotal,
+        ieo: ieoTotal,
+        total: imoTotal + isoTotal + ieoTotal,
+        payment: paymentTotal,
         schools: total,
       };
     }

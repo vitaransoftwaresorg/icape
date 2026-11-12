@@ -14,6 +14,7 @@ export type AdminAccountsResponse = {
     createdAt: string;
     updatedAt?: string;
     registrationCount: number;
+    registrationId?: string | null;
     schoolName: string;
     schoolCode: string;
     city: string;
@@ -28,6 +29,7 @@ export type AdminAccountsResponse = {
     isoCount: number;
     ieoCount: number;
     olympiadTotal: number;
+    amountExpected?: number;
     olympiadYear: { label: string; code: string } | null;
     registration: unknown;
   }>;
@@ -35,6 +37,8 @@ export type AdminAccountsResponse = {
     imo: number;
     iso: number;
     ieo: number;
+    total?: number;
+    payment?: number;
     schools: number;
   };
   pagination: {
@@ -256,6 +260,32 @@ export async function fetchAdminStudents(params: {
   );
   if (!res.success || !res.data) {
     throw new Error(res.message || "Failed to load students");
+  }
+  return res.data;
+}
+
+export type AdminStudentUpdateInput = {
+  name: string;
+  grade: number;
+  section?: string;
+  mobile?: string;
+  imo: boolean;
+  iso: boolean;
+  ieo: boolean;
+};
+
+export type AdminStudentRow = AdminStudentsResponse["students"][number];
+
+export async function updateAdminStudent(
+  id: string,
+  body: AdminStudentUpdateInput,
+): Promise<AdminStudentRow> {
+  const res = await apiRequest<AdminStudentRow>(
+    `/admin/school-registrations/students/${id}`,
+    { method: "PUT", body },
+  );
+  if (!res.success || !res.data) {
+    throw new Error(res.message || "Failed to update student");
   }
   return res.data;
 }

@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 
 const app = express();
 
+
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) return true;
   const allowed = new Set([
@@ -70,5 +71,6 @@ app.use(apiRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
+
 
 export default app;

@@ -81,6 +81,10 @@ adminSchoolRegistrationRouter.get(
   "/students",
   adminSchoolRegistrationController.listStudents,
 );
+adminSchoolRegistrationRouter.put(
+  "/students/:id",
+  adminSchoolRegistrationController.updateStudent,
+);
 adminSchoolRegistrationRouter.post(
   "/students/export-jobs",
   adminSchoolRegistrationController.startStudentExportJob,

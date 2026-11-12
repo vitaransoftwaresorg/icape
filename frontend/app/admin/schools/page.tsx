@@ -29,6 +29,7 @@ type AccountRow = {
   name: string | null;
   createdAt: string;
   registrationCount: number;
+  registrationId?: string | null;
   schoolName: string;
   schoolCode: string;
   city: string;
@@ -42,8 +43,14 @@ type AccountRow = {
   isoCount: number;
   ieoCount: number;
   olympiadTotal: number;
+  amountExpected?: number;
   olympiadYear: { label: string; code: string } | null;
 };
+
+function formatMoney(amount: number | null | undefined) {
+  if (amount == null || Number.isNaN(Number(amount))) return "—";
+  return `₹${Number(amount).toLocaleString("en-IN")}`;
+}
 
 const PAGE_SIZE = 20;
 
@@ -98,8 +105,12 @@ export default function AdminSchoolsPage() {
     imo: 0,
     iso: 0,
     ieo: 0,
+    total: 0,
+    payment: 0,
     schools: total,
   };
+  const olympiadEntriesTotal =
+    totals.total ?? totals.imo + totals.iso + totals.ieo;
   const showInitialLoading = schoolsQuery.isPending && !schoolsQuery.data;
 
   async function setSchoolPassword() {
@@ -154,6 +165,7 @@ export default function AdminSchoolsPage() {
               { code: "IMO", count: totals.imo },
               { code: "IEO", count: totals.ieo },
               { code: "ISO", count: totals.iso },
+              { code: "Total", count: olympiadEntriesTotal },
             ] as const
           ).map((item, index) => (
             <div
@@ -172,6 +184,14 @@ export default function AdminSchoolsPage() {
               </p>
             </div>
           ))}
+          <div className="border-l border-border px-3.5 py-2 text-center sm:px-4">
+            <p className="text-[11px] font-semibold tracking-wide text-muted">
+              Payment
+            </p>
+            <p className="text-base font-bold tabular-nums leading-tight text-brand">
+              {showInitialLoading ? "—" : formatMoney(totals.payment || 0)}
+            </p>
+          </div>
           <div className="border-l border-brand/20 bg-brand px-3.5 py-2 text-center sm:px-4">
             <p className="text-[11px] font-semibold tracking-wide text-white/80">
               Schools
@@ -219,6 +239,8 @@ export default function AdminSchoolsPage() {
                 <th className="px-3 py-3 text-center font-semibold">IEO</th>
                 <th className="px-3 py-3 text-center font-semibold">ISO</th>
                 <th className="px-3 py-3 text-center font-semibold">Total</th>
+                <th className="px-3 py-3 text-center font-semibold">Payment</th>
+                <th className="px-3 py-3 text-center font-semibold">Students</th>
                 <th className="px-3 py-3 text-center font-semibold">Details</th>
                 <th className="px-3 py-3 text-center font-semibold">Password</th>
               </tr>
@@ -270,6 +292,33 @@ export default function AdminSchoolsPage() {
                     {row.olympiadTotal}
                   </td>
                   <td className="px-3 py-3 text-center align-middle">
+                    {row.registrationId ? (
+                      <Link
+                        href={`/admin/registrations?status=APPROVED&id=${encodeURIComponent(row.registrationId)}`}
+                        className="text-sm font-semibold tabular-nums text-brand underline underline-offset-2 hover:text-brand-hover"
+                        title="Open payment review for this school"
+                      >
+                        {formatMoney(row.amountExpected || 0)}
+                      </Link>
+                    ) : (
+                      <span className="text-sm tabular-nums text-muted">
+                        {formatMoney(row.amountExpected || 0)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center align-middle">
+                    {row.schoolCode ? (
+                      <Link
+                        href={`/admin/students?schoolCode=${encodeURIComponent(row.schoolCode)}`}
+                        className="text-sm font-semibold text-brand underline underline-offset-2 hover:text-brand-hover"
+                      >
+                        Students
+                      </Link>
+                    ) : (
+                      <span className="text-sm text-muted">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-center align-middle">
                     <Link
                       href={`/admin/schools/${row.id}`}
                       className="text-sm font-semibold text-brand underline underline-offset-2 hover:text-brand-hover"
@@ -297,13 +346,13 @@ export default function AdminSchoolsPage() {
               ))}
               {!showInitialLoading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={13} className="px-4 py-10 text-center text-muted">
                     No schools found.
                   </td>
                 </tr>
               ) : null}
               {showInitialLoading ? (
-                <AdminTableSkeletonRows columns={11} rows={8} />
+                <AdminTableSkeletonRows columns={13} rows={8} />
               ) : null}
             </tbody>
           </table>

@@ -323,18 +323,26 @@ export function SchoolAccountDetailsView({
                 ).label.replace(" *", "")}
                 value={reg.payment.utr}
               />
-              <DetailItem
-                label="Amount"
-                value={`INR ${Number(reg.payment.amountExpected).toLocaleString("en-IN")}`}
-              />
+              <DetailItem label="Olympiad entries" value={total} />
               <DetailItem
                 label="Fee per Olympiad"
                 value={
                   reg.concessionFeePerStudent != null &&
                   reg.concessionFeePerStudent > 0
-                    ? `INR ${reg.concessionFeePerStudent} (concession)`
-                    : "INR 150 (standard)"
+                    ? `₹${reg.concessionFeePerStudent} (concession)`
+                    : "₹150 (standard)"
                 }
+              />
+              <DetailItem
+                label="Total paid"
+                value={`₹${Number(
+                  reg.payment.amountExpected ??
+                    total *
+                      (reg.concessionFeePerStudent != null &&
+                      reg.concessionFeePerStudent > 0
+                        ? reg.concessionFeePerStudent
+                        : 150),
+                ).toLocaleString("en-IN")}`}
               />
             </DetailSection>
           ) : null}
