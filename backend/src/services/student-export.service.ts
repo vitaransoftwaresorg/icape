@@ -37,6 +37,46 @@ export type StudentExportFilters = {
 
 type FilterJson = StudentExportFilters & { format?: string };
 
+function slugFilePart(value: string) {
+  return value
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+async function buildStudentExportFileName(
+  filters: StudentExportFilters,
+  stamp: string,
+  ext: string,
+) {
+  const parts: string[] = [];
+
+  if (filters.schoolCode?.trim()) {
+    const school = await prisma.schoolRegistration.findFirst({
+      where: {
+        schoolCode: filters.schoolCode.trim(),
+        olympiadYear: CURRENT_OLYMPIAD_YEAR,
+      },
+      select: { schoolName: true, schoolCode: true },
+      orderBy: { updatedAt: "desc" },
+    });
+    const schoolLabel =
+      school?.schoolName?.trim() ||
+      school?.schoolCode?.trim() ||
+      filters.schoolCode.trim();
+    parts.push(slugFilePart(schoolLabel) || "school");
+  } else {
+    parts.push("i-cape-students");
+  }
+
+  if (filters.olympiad) parts.push(filters.olympiad);
+  if (filters.grade != null) parts.push(`G${filters.grade}`);
+  parts.push(stamp);
+
+  return `${parts.filter(Boolean).join("-")}.${ext}`;
+}
+
 function parseFilters(raw: unknown): StudentExportFilters {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const f = raw as FilterJson;
@@ -154,7 +194,8 @@ async function processExportJob(jobId: string) {
   await ensureExportDir();
   const filePath = filePathForJob(jobId, format);
   const stamp = new Date().toISOString().slice(0, 10);
-  const fileName = `i-cape-students-${stamp}.${format === "xlsx" ? "xlsx" : "pdf"}`;
+  const ext = format === "xlsx" ? "xlsx" : "pdf";
+  const fileName = await buildStudentExportFileName(filters, stamp, ext);
 
   await prisma.studentExportJob.update({
     where: { id: jobId },
@@ -191,7 +232,7 @@ async function processExportJob(jobId: string) {
         while (true) {
           const rows = await prisma.registrationStudent.findMany({
             where: schoolStudentWhere,
-            orderBy: [{ grade: "asc" }, { name: "asc" }, { id: "asc" }],
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             skip,
             take: BATCH_SIZE,
             select: {
@@ -263,7 +304,7 @@ async function processExportJob(jobId: string) {
         while (true) {
           const rows = await prisma.registrationStudent.findMany({
             where: schoolStudentWhere,
-            orderBy: [{ grade: "asc" }, { name: "asc" }, { id: "asc" }],
+            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
             skip,
             take: BATCH_SIZE,
             select: {

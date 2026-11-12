@@ -650,7 +650,10 @@ export const adminSchoolRegistrationController = {
     try {
       const query = adminStudentsQuerySchema.parse(req.query);
       const students = await schoolRegistrationService.adminExportStudents(query);
-      const filename = exportFilename("i-cape-students", "xlsx", query);
+      const filename = exportFilename("i-cape-students", "xlsx", {
+        ...query,
+        schoolName: students[0]?.schoolName,
+      });
       await writeStudentListExcel(res, students, filename);
     } catch (err) {
       next(err);
@@ -677,7 +680,10 @@ export const adminSchoolRegistrationController = {
     try {
       const query = adminStudentsQuerySchema.parse(req.query);
       const students = await schoolRegistrationService.adminExportStudents(query);
-      const filename = exportFilename("i-cape-students", "pdf", query);
+      const filename = exportFilename("i-cape-students", "pdf", {
+        ...query,
+        schoolName: students[0]?.schoolName,
+      });
       writeStudentListPdf(res, students, filename, {
         olympiad: query.olympiad,
         grade: query.grade,

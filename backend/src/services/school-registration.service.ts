@@ -1208,9 +1208,8 @@ export const schoolRegistrationService = {
       prisma.registrationStudent.findMany({
         where: studentWhere,
         orderBy: [
-          { schoolRegistration: { schoolName: "asc" } },
-          { grade: "asc" },
-          { name: "asc" },
+          { createdAt: "desc" },
+          { id: "desc" },
         ],
         skip: (input.page - 1) * input.limit,
         take: input.limit,
@@ -1736,9 +1735,8 @@ export const schoolRegistrationService = {
     const rows = await prisma.registrationStudent.findMany({
       where: studentWhere,
       orderBy: [
-        { schoolRegistration: { schoolName: "asc" } },
-        { grade: "asc" },
-        { name: "asc" },
+        { createdAt: "desc" },
+        { id: "desc" },
       ],
       take: EXPORT_MAX,
       include: {
