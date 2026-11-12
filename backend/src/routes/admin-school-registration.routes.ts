@@ -81,6 +81,15 @@ adminSchoolRegistrationRouter.get(
   "/students",
   adminSchoolRegistrationController.listStudents,
 );
+adminSchoolRegistrationRouter.post(
+  "/students",
+  adminSchoolRegistrationController.addStudent,
+);
+adminSchoolRegistrationRouter.post(
+  "/students/import",
+  upload.single("file"),
+  adminSchoolRegistrationController.importAndAppendStudents,
+);
 adminSchoolRegistrationRouter.put(
   "/students/:id",
   adminSchoolRegistrationController.updateStudent,

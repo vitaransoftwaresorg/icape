@@ -286,6 +286,20 @@ export const adminUpdateStudentSchema = registrationStudentDraftSchema
     message: "Select at least one olympiad (Maths / Science / English)",
   });
 
+/** Admin add one student to an approved school (append-only). */
+export const adminAddStudentSchema = registrationStudentDraftSchema
+  .omit({ id: true, registrationNumber: true })
+  .extend({
+    schoolCode: z.string().trim().min(1, "School code is required"),
+  })
+  .refine((s) => s.imo || s.iso || s.ieo, {
+    message: "Select at least one olympiad (Maths / Science / English)",
+  });
+
+export const adminImportStudentsSchoolSchema = z.object({
+  schoolCode: z.string().trim().min(1, "School code is required"),
+});
+
 export const schoolStudentsQuerySchema = z.object({
   grade: z.preprocess(
     emptyToUndefined,
