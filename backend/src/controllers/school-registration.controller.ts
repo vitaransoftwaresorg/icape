@@ -10,6 +10,8 @@ import {
   adminSetSchoolPasswordSchema,
   adminStudentsQuerySchema,
   adminUpdateStudentSchema,
+  adminAddStudentSchema,
+  adminImportStudentsSchoolSchema,
   paymentStepSchema,
   paymentReferenceCheckSchema,
   registrationStudentSchema,
@@ -608,6 +610,37 @@ export const adminSchoolRegistrationController = {
         body,
       );
       res.json({ success: true, message: "Student updated", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async addStudent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = adminAddStudentSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminAddStudent(body);
+      res.status(201).json({ success: true, message: "Student added", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async importAndAppendStudents(req: Request, res: Response, next: NextFunction) {
+    try {
+      const file = req.file;
+      if (!file) throw new AppError("Excel file is required", 400);
+      const { schoolCode } = adminImportStudentsSchoolSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminImportAndAppendStudents(
+        schoolCode,
+        file.buffer,
+      );
+      res.status(201).json({
+        success: true,
+        message: `Added ${data.added} student(s)${
+          data.skipped ? `, skipped ${data.skipped} existing` : ""
+        }`,
+        data,
+      });
     } catch (err) {
       next(err);
     }

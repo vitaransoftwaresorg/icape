@@ -1427,6 +1427,282 @@ export const schoolRegistrationService = {
     return this.mapAdminStudentRow(updated);
   },
 
+  /**
+   * Append students to an approved school registration.
+   * Existing students are never deleted. Exact name+grade+section matches are skipped.
+   */
+  async adminAppendStudents(
+    schoolCode: string,
+    students: Array<{
+      name: string;
+      grade: number;
+      section?: string;
+      mobile?: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    }>,
+  ) {
+    const code = schoolCode.trim();
+    if (!code) throw new AppError("School code is required", 400);
+
+    const reg = await prisma.schoolRegistration.findFirst({
+      where: {
+        schoolCode: code,
+        olympiadYear: CURRENT_OLYMPIAD_YEAR,
+        status: RegistrationStatus.APPROVED,
+      },
+      select: {
+        id: true,
+        schoolCode: true,
+        schoolName: true,
+        city: true,
+        state: true,
+        status: true,
+        olympiadYear: true,
+        concessionFeePerStudent: true,
+        students: {
+          select: {
+            registrationNumber: true,
+            name: true,
+            grade: true,
+            section: true,
+          },
+        },
+      },
+    });
+
+    if (!reg) {
+      throw new AppError(
+        "Approved school registration not found for this school code",
+        404,
+      );
+    }
+
+    const existingKeys = new Set(
+      reg.students.map(
+        (s) =>
+          `${s.name.trim().toUpperCase()}|${s.grade}|${(s.section || "").trim().toUpperCase()}`,
+      ),
+    );
+
+    const prepared: Array<{
+      name: string;
+      grade: number;
+      section: string;
+      mobile: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    }> = [];
+    let skipped = 0;
+    const skipNotes: string[] = [];
+
+    for (const raw of students) {
+      const name = raw.name.trim().toUpperCase();
+      const section = (raw.section || "").trim().toUpperCase();
+      const grade = raw.grade;
+      if (name.length < 2 || !Number.isInteger(grade) || grade < 3 || grade > 10) {
+        continue;
+      }
+      if (!raw.imo && !raw.iso && !raw.ieo) {
+        continue;
+      }
+      const key = `${name}|${grade}|${section}`;
+      if (existingKeys.has(key)) {
+        skipped += 1;
+        skipNotes.push(`${name} · Grade ${grade}${section ? `-${section}` : ""}`);
+        continue;
+      }
+      existingKeys.add(key);
+
+      const digits = (raw.mobile || "").replace(/\D/g, "");
+      const mobile =
+        digits.length === 10
+          ? digits
+          : digits.length === 12 && digits.startsWith("91")
+            ? digits.slice(2)
+            : digits.length === 11 && digits.startsWith("0")
+              ? digits.slice(1)
+              : "";
+
+      prepared.push({
+        name,
+        grade,
+        section,
+        mobile,
+        imo: raw.imo,
+        iso: raw.iso,
+        ieo: raw.ieo,
+      });
+    }
+
+    if (prepared.length === 0 && skipped === 0) {
+      throw new AppError("No valid students to add", 400);
+    }
+
+    if (reg.students.length + prepared.length > MAX_STUDENTS_PER_REGISTRATION) {
+      throw new AppError("Too many students for one registration", 400);
+    }
+
+    const freshNumbers =
+      prepared.length > 0
+        ? await allocateStudentRegistrationNumbers(prepared.length)
+        : [];
+
+    if (prepared.some((_, i) => !/^\d{8}$/.test(freshNumbers[i] || ""))) {
+      throw new AppError("Failed to allocate student registration numbers", 500);
+    }
+
+    let addedRows: Array<{
+      id: string;
+      registrationNumber: string;
+      name: string;
+      grade: number;
+      section: string;
+      mobile: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+      schoolRegistration: {
+        id: string;
+        schoolCode: string;
+        schoolName: string;
+        city: string;
+        state: string;
+        status: RegistrationStatus;
+        olympiadYear: string;
+      };
+    }> = [];
+
+    if (prepared.length > 0) {
+      await prisma.$transaction(async (tx) => {
+        await tx.registrationStudent.createMany({
+          data: prepared.map((s, i) => ({
+            schoolRegistrationId: reg.id,
+            registrationNumber: freshNumbers[i]!,
+            name: s.name,
+            grade: s.grade,
+            section: s.section,
+            mobile: s.mobile,
+            imo: s.imo,
+            iso: s.iso,
+            ieo: s.ieo,
+          })),
+        });
+
+        const allStudents = await tx.registrationStudent.findMany({
+          where: { schoolRegistrationId: reg.id },
+          select: {
+            name: true,
+            grade: true,
+            section: true,
+            mobile: true,
+            imo: true,
+            iso: true,
+            ieo: true,
+          },
+        });
+
+        const feePerSlot =
+          typeof reg.concessionFeePerStudent === "number" &&
+          reg.concessionFeePerStudent > 0
+            ? reg.concessionFeePerStudent
+            : PAYMENT_DETAILS.feeAmount;
+
+        await tx.schoolRegistration.update({
+          where: { id: reg.id },
+          data: {
+            gradeCounts: gradeCountsFromStudents(allStudents),
+            ...olympiadCountsFromStudents(allStudents),
+          },
+        });
+
+        await tx.registrationPayment.updateMany({
+          where: { schoolRegistrationId: reg.id },
+          data: {
+            amountExpected: computeRegistrationFee(allStudents, feePerSlot),
+          },
+        });
+      });
+
+      addedRows = await prisma.registrationStudent.findMany({
+        where: {
+          schoolRegistrationId: reg.id,
+          registrationNumber: { in: freshNumbers },
+        },
+        include: {
+          schoolRegistration: {
+            select: {
+              id: true,
+              schoolCode: true,
+              schoolName: true,
+              city: true,
+              state: true,
+              status: true,
+              olympiadYear: true,
+            },
+          },
+        },
+      });
+    }
+
+    return {
+      schoolCode: reg.schoolCode,
+      schoolName: reg.schoolName,
+      added: addedRows.length,
+      skipped,
+      skipNotes: skipNotes.slice(0, 20),
+      students: addedRows.map((s) => this.mapAdminStudentRow(s)),
+    };
+  },
+
+  async adminAddStudent(input: {
+    schoolCode: string;
+    name: string;
+    grade: number;
+    section?: string;
+    mobile?: string;
+    imo: boolean;
+    iso: boolean;
+    ieo: boolean;
+  }) {
+    const result = await this.adminAppendStudents(input.schoolCode, [input]);
+    if (result.added === 0) {
+      throw new AppError(
+        "This student already exists for the school (same name, grade, and section). Edit the existing record instead.",
+        409,
+      );
+    }
+    return result.students[0];
+  },
+
+  async adminImportAndAppendStudents(schoolCode: string, buffer: Buffer) {
+    const parsed = await this.importStudentsFromExcel(buffer);
+    const valid = parsed.students.filter(
+      (s) =>
+        !s.importWarning &&
+        s.name.trim().length >= 2 &&
+        Number.isInteger(s.grade) &&
+        s.grade >= 3 &&
+        s.grade <= 10 &&
+        (s.imo || s.iso || s.ieo),
+    );
+    if (valid.length === 0) {
+      throw new AppError(
+        parsed.errors[0] ||
+          "No valid student rows found in Excel. Fix warnings and try again.",
+        400,
+      );
+    }
+    const result = await this.adminAppendStudents(schoolCode, valid);
+    return {
+      ...result,
+      parsed: parsed.students.length,
+      parseErrors: parsed.errors.slice(0, 30),
+    };
+  },
+
   async adminExportStudents(
     input: {
       q?: string;
