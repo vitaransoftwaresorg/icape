@@ -86,6 +86,19 @@ adminSchoolRegistrationRouter.put(
   adminSchoolRegistrationController.updateStudent,
 );
 adminSchoolRegistrationRouter.post(
+  "/students",
+  adminSchoolRegistrationController.addStudent,
+);
+adminSchoolRegistrationRouter.post(
+  "/students/import",
+  upload.single("file"),
+  adminSchoolRegistrationController.importAndAppendStudents,
+);
+adminSchoolRegistrationRouter.put(
+  "/students/:id",
+  adminSchoolRegistrationController.updateStudent,
+);
+adminSchoolRegistrationRouter.post(
   "/students/export-jobs",
   adminSchoolRegistrationController.startStudentExportJob,
 );
