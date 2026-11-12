@@ -188,7 +188,8 @@ function serializeRegistration(
         ? null
         : {
             id: reg.payment.id,
-            amountExpected: Number(reg.payment.amountExpected),
+            // Live total = olympiad program slots × fee per slot
+            amountExpected: fee,
             paymentMethod: reg.payment.paymentMethod,
             utr: reg.payment.utr,
             proofUrl: reg.payment.proofUrl,
@@ -1016,11 +1017,26 @@ export const schoolRegistrationService = {
     ]);
 
     return {
-      registrations: rows.map((row) => ({
-        ...row,
-        olympiadYear: OLYMPIAD_YEAR_META,
-        olympiadTotal: row.imoCount + row.isoCount + row.ieoCount,
-      })),
+      registrations: rows.map((row) => {
+        const olympiadTotal = row.imoCount + row.isoCount + row.ieoCount;
+        const feePerSlot =
+          typeof row.concessionFeePerStudent === "number" &&
+          row.concessionFeePerStudent > 0
+            ? row.concessionFeePerStudent
+            : PAYMENT_DETAILS.feeAmount;
+        const amountExpected = olympiadTotal * feePerSlot;
+        return {
+          ...row,
+          olympiadYear: OLYMPIAD_YEAR_META,
+          olympiadTotal,
+          payment: row.payment
+            ? {
+                ...row.payment,
+                amountExpected,
+              }
+            : null,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -1270,6 +1286,147 @@ export const schoolRegistrationService = {
     };
   },
 
+  async adminUpdateStudent(
+    studentId: string,
+    input: {
+      name: string;
+      grade: number;
+      section?: string;
+      mobile?: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    },
+  ) {
+    const existing = await prisma.registrationStudent.findUnique({
+      where: { id: studentId },
+      include: {
+        schoolRegistration: {
+          select: {
+            id: true,
+            schoolCode: true,
+            schoolName: true,
+            city: true,
+            state: true,
+            status: true,
+            olympiadYear: true,
+            concessionFeePerStudent: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) throw new AppError("Student not found", 404);
+    if (existing.schoolRegistration.olympiadYear !== CURRENT_OLYMPIAD_YEAR) {
+      throw new AppError("Student is outside the active Olympiad Year", 400);
+    }
+    if (existing.schoolRegistration.status !== RegistrationStatus.APPROVED) {
+      throw new AppError(
+        "Only approved registration students can be edited here",
+        400,
+      );
+    }
+
+    const name = input.name.trim().toUpperCase();
+    const section = (input.section || "").trim().toUpperCase();
+    const mobile = (() => {
+      const digits = (input.mobile || "").replace(/\D/g, "");
+      if (digits.length === 10) return digits;
+      if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+      if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+      return "";
+    })();
+
+    if (name.length < 2) {
+      throw new AppError("Student name is required", 400);
+    }
+    if (!input.imo && !input.iso && !input.ieo) {
+      throw new AppError(
+        "Select at least one olympiad (Maths / Science / English)",
+        400,
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.registrationStudent.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          grade: input.grade,
+          section,
+          mobile,
+          imo: input.imo,
+          iso: input.iso,
+          ieo: input.ieo,
+        },
+      });
+
+      const allStudents = await tx.registrationStudent.findMany({
+        where: { schoolRegistrationId: existing.schoolRegistrationId },
+        select: {
+          name: true,
+          grade: true,
+          section: true,
+          mobile: true,
+          imo: true,
+          iso: true,
+          ieo: true,
+        },
+      });
+
+      const counts = olympiadCountsFromStudents(allStudents);
+      const feePerSlot =
+        typeof existing.schoolRegistration.concessionFeePerStudent ===
+          "number" &&
+        existing.schoolRegistration.concessionFeePerStudent > 0
+          ? existing.schoolRegistration.concessionFeePerStudent
+          : PAYMENT_DETAILS.feeAmount;
+      const amountExpected = computeRegistrationFee(allStudents, feePerSlot);
+
+      await tx.schoolRegistration.update({
+        where: { id: existing.schoolRegistrationId },
+        data: {
+          gradeCounts: gradeCountsFromStudents(allStudents),
+          ...counts,
+        },
+      });
+
+      // Keep payment total in sync with current olympiad program slots.
+      await tx.registrationPayment.updateMany({
+        where: { schoolRegistrationId: existing.schoolRegistrationId },
+        data: { amountExpected },
+      });
+
+      // Keep results Student demographics in sync when present for this year.
+      await tx.student.updateMany({
+        where: {
+          registrationNumber: existing.registrationNumber,
+          olympiadYear: CURRENT_OLYMPIAD_YEAR,
+        },
+        data: { name, grade: input.grade },
+      });
+    });
+
+    const updated = await prisma.registrationStudent.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: {
+        schoolRegistration: {
+          select: {
+            id: true,
+            schoolCode: true,
+            schoolName: true,
+            city: true,
+            state: true,
+            status: true,
+            olympiadYear: true,
+          },
+        },
+      },
+    });
+
+    return this.mapAdminStudentRow(updated);
+  },
+
   async adminExportStudents(
     input: {
       q?: string;
@@ -1338,10 +1495,13 @@ export const schoolRegistrationService = {
       ...reg,
       students: [],
     });
+    const liveAmount = serialized?.feeExpected ?? 0;
+    const payment = serializePayment(reg.payment);
     return {
       ...serialized,
-      // Admin always sees the submitted payment, including after reject
-      payment: serializePayment(reg.payment),
+      // Admin always sees the submitted payment, including after reject.
+      // Amount is live: current olympiad entries × fee per slot.
+      payment: payment ? { ...payment, amountExpected: liveAmount } : null,
       schoolAccount: reg.schoolAccount,
     };
   },

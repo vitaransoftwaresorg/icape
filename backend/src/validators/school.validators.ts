@@ -279,6 +279,13 @@ export const adminStudentsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
 });
 
+/** Admin edit of an approved registration student — registration number is never writable. */
+export const adminUpdateStudentSchema = registrationStudentDraftSchema
+  .omit({ id: true, registrationNumber: true })
+  .refine((s) => s.imo || s.iso || s.ieo, {
+    message: "Select at least one olympiad (Maths / Science / English)",
+  });
+
 export const schoolStudentsQuerySchema = z.object({
   grade: z.preprocess(
     emptyToUndefined,

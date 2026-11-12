@@ -9,6 +9,7 @@ import {
   adminRegistrationsQuerySchema,
   adminSetSchoolPasswordSchema,
   adminStudentsQuerySchema,
+  adminUpdateStudentSchema,
   paymentStepSchema,
   paymentReferenceCheckSchema,
   registrationStudentSchema,
@@ -594,6 +595,19 @@ export const adminSchoolRegistrationController = {
       const query = adminStudentsQuerySchema.parse(req.query);
       const data = await schoolRegistrationService.adminListStudents(query);
       res.json({ success: true, message: "OK", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateStudent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = adminUpdateStudentSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminUpdateStudent(
+        String(req.params.id),
+        body,
+      );
+      res.json({ success: true, message: "Student updated", data });
     } catch (err) {
       next(err);
     }

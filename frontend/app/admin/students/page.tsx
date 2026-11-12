@@ -1,18 +1,23 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   ChevronRight,
   Download,
   FileSpreadsheet,
+  Pencil,
+  X,
 } from "lucide-react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   adminQueryKeys,
   ADMIN_LIST_REFETCH_MS,
   fetchAdminStudents,
+  updateAdminStudent,
 } from "@/lib/admin-queries";
 import { AdminTableShell, AdminTableSkeletonRows } from "@/components/admin/admin-table-shell";
 import { AdminSearchField } from "@/components/admin/admin-search-field";
@@ -36,6 +41,16 @@ type StudentRow = {
   state: string;
   status: string;
   registrationId: string;
+};
+
+type EditDraft = {
+  name: string;
+  grade: string;
+  section: string;
+  mobile: string;
+  imo: boolean;
+  iso: boolean;
+  ieo: boolean;
 };
 
 const PAGE_SIZE = 50;
@@ -100,7 +115,37 @@ function buildStudentsHeading(applied: AppliedFilters) {
   };
 }
 
+function toEditDraft(row: StudentRow): EditDraft {
+  return {
+    name: row.name,
+    grade: String(row.grade),
+    section: row.section || "",
+    mobile: row.mobile || "",
+    imo: row.imo,
+    iso: row.iso,
+    ieo: row.ieo,
+  };
+}
+
 export default function AdminStudentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="rounded-2xl border border-border bg-white px-4 py-10 text-center text-sm text-muted">
+          Loading students…
+        </div>
+      }
+    >
+      <AdminStudentsPageInner />
+    </Suspense>
+  );
+}
+
+function AdminStudentsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
+  const schoolCodeFromUrl = searchParams.get("schoolCode")?.trim() || "";
   const {
     job: exportJob,
     starting: startingExport,
@@ -110,16 +155,35 @@ export default function AdminStudentsPage() {
     clearError: clearExportError,
   } = useAdminStudentExport();
   const [q, setQ] = useState("");
-  const [schoolCode, setSchoolCode] = useState("");
+  const [schoolCode, setSchoolCode] = useState(schoolCodeFromUrl);
   const [olympiad, setOlympiad] = useState("");
   const [grade, setGrade] = useState("");
   const [page, setPage] = useState(1);
+  const [editing, setEditing] = useState<StudentRow | null>(null);
+  const [draft, setDraft] = useState<EditDraft | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saveMessage, setSaveMessage] = useState("");
   const debouncedQ = useDebouncedValue(q, 300);
   const appliedQ = debouncedQ.trim();
 
   useEffect(() => {
+    setSchoolCode(schoolCodeFromUrl);
+    setPage(1);
+  }, [schoolCodeFromUrl]);
+
+  useEffect(() => {
     setPage(1);
   }, [appliedQ, schoolCode, olympiad, grade]);
+
+  function setSchoolFilter(next: string) {
+    setSchoolCode(next);
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.set("schoolCode", next);
+    else params.delete("schoolCode");
+    const qs = params.toString();
+    router.replace(qs ? `/admin/students?${qs}` : "/admin/students");
+  }
 
   const filters = {
     page,
@@ -177,6 +241,62 @@ export default function AdminStudentsPage() {
       grade: applied.grade ? Number(applied.grade) : undefined,
       format,
     });
+  }
+
+  function openEdit(row: StudentRow) {
+    setEditing(row);
+    setDraft(toEditDraft(row));
+    setSaveError("");
+    setSaveMessage("");
+  }
+
+  function closeEdit() {
+    if (saveBusy) return;
+    setEditing(null);
+    setDraft(null);
+    setSaveError("");
+  }
+
+  async function saveEdit() {
+    if (!editing || !draft) return;
+    const name = draft.name.trim();
+    const gradeNum = Number(draft.grade);
+    if (name.length < 2) {
+      setSaveError("Enter student name");
+      return;
+    }
+    if (!RESULT_GRADES.includes(gradeNum as (typeof RESULT_GRADES)[number])) {
+      setSaveError("Select a valid grade");
+      return;
+    }
+    if (!draft.imo && !draft.iso && !draft.ieo) {
+      setSaveError("Select at least one olympiad");
+      return;
+    }
+
+    setSaveBusy(true);
+    setSaveError("");
+    try {
+      await updateAdminStudent(editing.id, {
+        name,
+        grade: gradeNum,
+        section: draft.section.trim(),
+        mobile: draft.mobile.trim(),
+        imo: draft.imo,
+        iso: draft.iso,
+        ieo: draft.ieo,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "students"] });
+      setSaveMessage("Student updated");
+      setEditing(null);
+      setDraft(null);
+    } catch (err) {
+      setSaveError(
+        err instanceof Error ? err.message : "Failed to update student",
+      );
+    } finally {
+      setSaveBusy(false);
+    }
   }
 
   const heading = useMemo(() => buildStudentsHeading(applied), [applied]);
@@ -244,10 +364,14 @@ export default function AdminStudentsPage() {
         />
         <select
           value={schoolCode}
-          onChange={(e) => setSchoolCode(e.target.value)}
+          onChange={(e) => setSchoolFilter(e.target.value)}
           className="h-9 rounded-md border border-border px-3 text-sm"
         >
           <option value="">All schools</option>
+          {schoolCode &&
+          !schools.some((s) => s.schoolCode === schoolCode) ? (
+            <option value={schoolCode}>{schoolCode}</option>
+          ) : null}
           {schools.map((s) => (
             <option key={s.schoolCode} value={s.schoolCode}>
               {s.schoolName} ({s.schoolCode})
@@ -323,6 +447,12 @@ export default function AdminStudentsPage() {
         <p className="text-sm text-red-600">{error}</p>
       ) : null}
 
+      {saveMessage ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">
+          {saveMessage}
+        </div>
+      ) : null}
+
       <AdminTableShell
         loading={showInitialLoading}
         className="overflow-x-auto rounded-xl border border-border bg-white"
@@ -339,6 +469,7 @@ export default function AdminStudentsPage() {
               <th className="px-3 py-3">Section</th>
               <th className="px-3 py-3">Olympiads</th>
               <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3 text-center">Edit</th>
             </tr>
           </thead>
           <tbody>
@@ -367,17 +498,28 @@ export default function AdminStudentsPage() {
                     Approved
                   </span>
                 </td>
+                <td className="px-3 py-3 text-center">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => openEdit(row)}
+                  >
+                    <Pencil className="size-3.5" aria-hidden />
+                    Edit
+                  </Button>
+                </td>
               </tr>
             ))}
             {!showInitialLoading && rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-3 py-10 text-center text-muted">
+                <td colSpan={10} className="px-3 py-10 text-center text-muted">
                   No students found
                 </td>
               </tr>
             ) : null}
             {showInitialLoading ? (
-              <AdminTableSkeletonRows columns={9} rows={10} />
+              <AdminTableSkeletonRows columns={10} rows={10} />
             ) : null}
           </tbody>
         </table>
@@ -408,6 +550,156 @@ export default function AdminStudentsPage() {
           <ChevronRight className="size-4" aria-hidden />
         </Button>
       </div>
+
+      {editing && draft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-brand">Edit student</h2>
+                <p className="text-sm text-muted">
+                  Registration number cannot be changed.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={closeEdit}
+                disabled={saveBusy}
+              >
+                <X className="size-4" aria-hidden />
+              </Button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-muted">
+                  Reg. No.
+                </label>
+                <Input
+                  value={editing.registrationNumber}
+                  disabled
+                  className="font-mono"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-muted">
+                  Student name
+                </label>
+                <Input
+                  value={draft.name}
+                  onChange={(e) =>
+                    setDraft((d) => (d ? { ...d, name: e.target.value } : d))
+                  }
+                  disabled={saveBusy}
+                />
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-muted">
+                    Grade
+                  </label>
+                  <select
+                    value={draft.grade}
+                    onChange={(e) =>
+                      setDraft((d) =>
+                        d ? { ...d, grade: e.target.value } : d,
+                      )
+                    }
+                    disabled={saveBusy}
+                    className="h-9 w-full rounded-md border border-border px-3 text-sm"
+                  >
+                    {RESULT_GRADES.map((g) => (
+                      <option key={g} value={g}>
+                        Grade {g}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-muted">
+                    Section
+                  </label>
+                  <Input
+                    value={draft.section}
+                    onChange={(e) =>
+                      setDraft((d) =>
+                        d ? { ...d, section: e.target.value } : d,
+                      )
+                    }
+                    disabled={saveBusy}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-muted">
+                  Mobile
+                </label>
+                <Input
+                  value={draft.mobile}
+                  onChange={(e) =>
+                    setDraft((d) =>
+                      d ? { ...d, mobile: e.target.value } : d,
+                    )
+                  }
+                  disabled={saveBusy}
+                  inputMode="numeric"
+                  maxLength={12}
+                />
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-semibold text-muted">
+                  Olympiads
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {(
+                    [
+                      ["imo", "IMO"],
+                      ["ieo", "IEO"],
+                      ["iso", "ISO"],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <label
+                      key={key}
+                      className="inline-flex items-center gap-2 text-sm text-brand"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={draft[key]}
+                        disabled={saveBusy}
+                        onChange={(e) =>
+                          setDraft((d) =>
+                            d ? { ...d, [key]: e.target.checked } : d,
+                          )
+                        }
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {saveError ? (
+                <p className="text-sm text-red-600">{saveError}</p>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              <Button type="button" disabled={saveBusy} onClick={() => void saveEdit()}>
+                {saveBusy ? "Saving…" : "Save changes"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={saveBusy}
+                onClick={closeEdit}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
