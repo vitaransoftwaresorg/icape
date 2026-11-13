@@ -1906,6 +1906,36 @@ export const schoolRegistrationService = {
     return this.adminGet(id);
   },
 
+  /** Admin updates concession fee (including for already-approved schools). */
+  async adminUpdateConcession(
+    accountId: string,
+    concessionFeePerStudent?: number | null,
+  ) {
+    const year = CURRENT_OLYMPIAD_YEAR;
+    const reg = await loadRegistration(accountId, year);
+    if (!reg) throw new AppError("Registration not found", 404);
+    assertEditable(reg.status, { allowApproved: true });
+
+    const concession =
+      typeof concessionFeePerStudent === "number" && concessionFeePerStudent > 0
+        ? concessionFeePerStudent
+        : null;
+    const feePerSlot = concession ?? PAYMENT_DETAILS.feeAmount;
+    const amountExpected = computeRegistrationFee(reg.students, feePerSlot);
+
+    await prisma.schoolRegistration.update({
+      where: { id: reg.id },
+      data: { concessionFeePerStudent: concession },
+    });
+
+    await prisma.registrationPayment.updateMany({
+      where: { schoolRegistrationId: reg.id },
+      data: { amountExpected },
+    });
+
+    return serializeRegistration(await loadRegistration(accountId, year));
+  },
+
   /**
    * Admin completes payment for a school registration (offline / assisted).
    * Optionally approves immediately.
