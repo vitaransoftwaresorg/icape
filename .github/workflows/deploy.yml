@@ -1,0 +1,48 @@
+name: Deploy to VPS using PM2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy to Ubuntu VPS
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER: ${{ secrets.VPS_USER }}
+          PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            -p "$PORT" \
+            "$USER@$HOST" \
+            'cd /var/www/i-cape &&
+             git pull --ff-only origin main &&
+             cd frontend &&
+             npm ci &&
+             npm run build &&
+             cd ../backend &&
+             npm ci &&
+             npx prisma generate &&
+             npx prisma migrate deploy &&
+             npm run build &&
+             pm2 reload all --update-env'
