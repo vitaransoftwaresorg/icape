@@ -1739,6 +1739,7 @@ export const schoolRegistrationService = {
     const rows = await prisma.registrationStudent.findMany({
       where: studentWhere,
       orderBy: [
+        { grade: "asc" },
         { createdAt: "desc" },
         { id: "desc" },
       ],
