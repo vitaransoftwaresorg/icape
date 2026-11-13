@@ -485,7 +485,9 @@ export const adminSchoolRegistrationController = {
     try {
       const accountId = String(req.params.id);
       const body = schoolDetailsSchema.parse(req.body);
-      const data = await schoolRegistrationService.saveStep1(accountId, body);
+      const data = await schoolRegistrationService.saveStep1(accountId, body, {
+        allowApproved: true,
+      });
       res.json({ success: true, message: "School details saved", data });
     } catch (err) {
       next(err);
@@ -523,6 +525,7 @@ export const adminSchoolRegistrationController = {
           draft: Boolean(body.draft),
           replaceAll: body.replaceAll !== false,
           finalize: body.finalize !== false,
+          allowApproved: true,
         },
       );
       res.json({
