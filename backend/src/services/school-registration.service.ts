@@ -279,13 +279,24 @@ async function assertPaymentReferenceAvailable(
 
 function assertEditable(
   status: RegistrationStatus,
+  options?: { allowApproved?: boolean },
 ) {
   if (status === RegistrationStatus.UNDER_REVIEW) {
     throw new AppError("Registration is under review and cannot be edited", 400);
   }
-  if (status === RegistrationStatus.APPROVED) {
+  if (status === RegistrationStatus.APPROVED && !options?.allowApproved) {
     throw new AppError("Registration is approved and cannot be edited", 400);
   }
+}
+
+function statusAfterAdminEdit(current: RegistrationStatus) {
+  if (current === RegistrationStatus.REJECTED) {
+    return RegistrationStatus.REJECTED;
+  }
+  if (current === RegistrationStatus.APPROVED) {
+    return RegistrationStatus.APPROVED;
+  }
+  return RegistrationStatus.DRAFT;
 }
 
 export const schoolRegistrationService = {
@@ -387,6 +398,7 @@ export const schoolRegistrationService = {
       phone: string;
       inchargeEmail: string;
     },
+    options?: { allowApproved?: boolean },
   ) {
     const year = CURRENT_OLYMPIAD_YEAR;
     let reg = await loadRegistration(accountId, year);
@@ -395,7 +407,7 @@ export const schoolRegistrationService = {
       reg = await loadRegistration(accountId, year);
     }
     if (!reg) throw new AppError("Registration not found", 404);
-    assertEditable(reg.status);
+    assertEditable(reg.status, { allowApproved: options?.allowApproved });
 
     // School code is system-assigned and unique — never overwrite from client
     let schoolCode = reg.schoolCode?.trim() || "";
@@ -433,11 +445,8 @@ export const schoolRegistrationService = {
         phone: data.phone,
         inchargeEmail: data.inchargeEmail,
         currentStep: Math.max(reg.currentStep, 2),
-        // Keep REJECTED until payment is resubmitted so the school still sees the reason
-        status:
-          reg.status === RegistrationStatus.REJECTED
-            ? RegistrationStatus.REJECTED
-            : RegistrationStatus.DRAFT,
+        // Keep APPROVED/REJECTED; only drafts reset to DRAFT.
+        status: statusAfterAdminEdit(reg.status),
       },
       include: {
         students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
@@ -464,12 +473,13 @@ export const schoolRegistrationService = {
       draft?: boolean;
       replaceAll?: boolean;
       finalize?: boolean;
+      allowApproved?: boolean;
     },
   ) {
     const year = CURRENT_OLYMPIAD_YEAR;
     const reg = await loadRegistration(accountId, year);
     if (!reg) throw new AppError("Complete school details first", 400);
-    assertEditable(reg.status);
+    assertEditable(reg.status, { allowApproved: options?.allowApproved });
     assertSchoolDetailsComplete(reg);
 
     const draft = Boolean(options?.draft);
@@ -627,6 +637,13 @@ export const schoolRegistrationService = {
       if (!draft && allStudents.length === 0) {
         throw new AppError("Add at least one student", 400);
       }
+      const feePerSlot =
+        typeof reg.concessionFeePerStudent === "number" &&
+        reg.concessionFeePerStudent > 0
+          ? reg.concessionFeePerStudent
+          : PAYMENT_DETAILS.feeAmount;
+      const amountExpected = computeRegistrationFee(allStudents, feePerSlot);
+
       await prisma.schoolRegistration.update({
         where: { id: reg.id },
         data: {
@@ -635,12 +652,16 @@ export const schoolRegistrationService = {
           currentStep: draft
             ? Math.max(reg.currentStep, 2)
             : Math.max(reg.currentStep, 3),
-          status:
-            reg.status === RegistrationStatus.REJECTED
-              ? RegistrationStatus.REJECTED
-              : RegistrationStatus.DRAFT,
+          status: statusAfterAdminEdit(reg.status),
         },
       });
+
+      if (reg.status === RegistrationStatus.APPROVED) {
+        await prisma.registrationPayment.updateMany({
+          where: { schoolRegistrationId: reg.id },
+          data: { amountExpected },
+        });
+      }
     }
 
     return serializeRegistration(await loadRegistration(accountId, year));

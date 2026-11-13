@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   KeyRound,
+  Pencil,
   X,
 } from "lucide-react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -242,6 +243,7 @@ export default function AdminSchoolsPage() {
                 <th className="px-3 py-3 text-center font-semibold">Payment</th>
                 <th className="px-3 py-3 text-center font-semibold">Students</th>
                 <th className="px-3 py-3 text-center font-semibold">Details</th>
+                <th className="px-3 py-3 text-center font-semibold">Edit</th>
                 <th className="px-3 py-3 text-center font-semibold">Password</th>
               </tr>
             </thead>
@@ -327,6 +329,16 @@ export default function AdminSchoolsPage() {
                     </Link>
                   </td>
                   <td className="px-3 py-3 text-center align-middle">
+                    <Link
+                      href={`/admin/schools/register?accountId=${encodeURIComponent(row.id)}`}
+                      title="Edit school"
+                      aria-label="Edit school"
+                      className="inline-flex size-8 items-center justify-center rounded-md text-brand hover:bg-brand-soft"
+                    >
+                      <Pencil className="size-3.5" aria-hidden />
+                    </Link>
+                  </td>
+                  <td className="px-3 py-3 text-center align-middle">
                     <Button
                       type="button"
                       size="sm"
@@ -346,13 +358,13 @@ export default function AdminSchoolsPage() {
               ))}
               {!showInitialLoading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={13} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={14} className="px-4 py-10 text-center text-muted">
                     No schools found.
                   </td>
                 </tr>
               ) : null}
               {showInitialLoading ? (
-                <AdminTableSkeletonRows columns={13} rows={8} />
+                <AdminTableSkeletonRows columns={14} rows={8} />
               ) : null}
             </tbody>
           </table>
