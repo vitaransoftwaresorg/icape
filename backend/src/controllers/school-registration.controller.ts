@@ -5,6 +5,7 @@ import {
 } from "../middleware/auth.middleware";
 import {
   adminCreateSchoolAccountSchema,
+  adminConcessionSchema,
   adminPaymentStepSchema,
   adminRegistrationsQuerySchema,
   adminSetSchoolPasswordSchema,
@@ -590,6 +591,20 @@ export const adminSchoolRegistrationController = {
             : "School submitted for payment verification",
         data,
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async updateAccountConcession(req: Request, res: Response, next: NextFunction) {
+    try {
+      const accountId = String(req.params.id);
+      const body = adminConcessionSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminUpdateConcession(
+        accountId,
+        body.concessionFeePerStudent ?? null,
+      );
+      res.json({ success: true, message: "Concession fee updated", data });
     } catch (err) {
       next(err);
     }

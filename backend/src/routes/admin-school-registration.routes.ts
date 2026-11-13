@@ -73,6 +73,10 @@ adminSchoolRegistrationRouter.put(
   "/accounts/:id/step/3",
   adminSchoolRegistrationController.saveAccountStep3,
 );
+adminSchoolRegistrationRouter.put(
+  "/accounts/:id/concession",
+  adminSchoolRegistrationController.updateAccountConcession,
+);
 adminSchoolRegistrationRouter.post(
   "/accounts/:id/password",
   adminSchoolRegistrationController.setPassword,
