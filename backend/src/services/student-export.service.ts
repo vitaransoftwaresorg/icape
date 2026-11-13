@@ -232,7 +232,11 @@ async function processExportJob(jobId: string) {
         while (true) {
           const rows = await prisma.registrationStudent.findMany({
             where: schoolStudentWhere,
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            orderBy: [
+              { grade: "asc" },
+              { createdAt: "desc" },
+              { id: "desc" },
+            ],
             skip,
             take: BATCH_SIZE,
             select: {
@@ -304,7 +308,11 @@ async function processExportJob(jobId: string) {
         while (true) {
           const rows = await prisma.registrationStudent.findMany({
             where: schoolStudentWhere,
-            orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+            orderBy: [
+              { grade: "asc" },
+              { createdAt: "desc" },
+              { id: "desc" },
+            ],
             skip,
             take: BATCH_SIZE,
             select: {
