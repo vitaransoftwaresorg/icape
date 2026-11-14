@@ -27,4 +27,4 @@ Route → Controller → Service → Repository → Prisma → PostgreSQL
 - Keep `/api` prefix; return consistent JSON responses
 - Never leak stack traces, DB errors, or secrets to clients
 - Prefer proper TypeScript types; avoid `any` unless unavoidable
-- Cloudinary credentials stay backend-only
+- S3 / SeaweedFS credentials stay backend-only

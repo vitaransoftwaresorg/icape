@@ -6,6 +6,7 @@ import schoolAuthRouter from "./school-auth.routes";
 import schoolRegistrationRouter from "./school-registration.routes";
 import adminSchoolRegistrationRouter from "./admin-school-registration.routes";
 import adminDatabaseRouter from "./admin-database.routes";
+import publicObjectsRouter from "./public-objects.routes";
 
 const apiRouter = Router();
 
@@ -18,6 +19,7 @@ apiRouter.get("/", (_req, res) => {
 });
 
 apiRouter.use("/health", healthRouter);
+apiRouter.use("/public", publicObjectsRouter);
 apiRouter.use("/auth", authRouter);
 apiRouter.use("/results", resultRouter);
 apiRouter.use("/school-auth", schoolAuthRouter);

@@ -8,6 +8,10 @@ import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 
 const app = express();
 
+// Nginx terminates TLS and sets X-Forwarded-*; required for express-rate-limit.
+if (env.nodeEnv === "production") {
+  app.set("trust proxy", 1);
+}
 
 function isAllowedOrigin(origin: string | undefined) {
   if (!origin) return true;

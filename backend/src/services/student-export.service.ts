@@ -1,6 +1,7 @@
 import { createReadStream } from "fs";
-import { mkdir, unlink, access } from "fs/promises";
+import { mkdir, unlink, access, readFile } from "fs/promises";
 import path from "path";
+import { Readable } from "stream";
 import ExcelJS from "exceljs";
 import {
   Prisma,
@@ -17,6 +18,15 @@ import {
   createStudentListPdfFileWriter,
   olympiadFlags,
 } from "../lib/student-list-documents";
+import {
+  deleteObject,
+  fromS3KeyRef,
+  getObjectStream,
+  isS3Configured,
+  isS3KeyRef,
+  putObject,
+  toS3KeyRef,
+} from "../lib/object-storage";
 import { schoolRegistrationService } from "./school-registration.service";
 
 const BATCH_SIZE = 500;
@@ -141,7 +151,11 @@ async function cleanupExpiredJobs() {
   for (const job of expired) {
     if (job.filePath) {
       try {
-        await unlink(job.filePath);
+        if (isS3KeyRef(job.filePath)) {
+          await deleteObject(fromS3KeyRef(job.filePath));
+        } else {
+          await unlink(job.filePath);
+        }
       } catch {
         /* ignore missing file */
       }
@@ -360,6 +374,23 @@ async function processExportJob(jobId: string) {
       await workbook.commit();
     }
 
+    let storedPath = filePath;
+    if (isS3Configured()) {
+      const body = await readFile(filePath);
+      const key = `exports/${jobId}.${ext}`;
+      await putObject({
+        key,
+        body,
+        contentType: contentTypeFor(format),
+      });
+      storedPath = toS3KeyRef(key);
+      try {
+        await unlink(filePath);
+      } catch {
+        /* ignore */
+      }
+    }
+
     const expiresAt = new Date(Date.now() + JOB_TTL_MS);
     await prisma.studentExportJob.update({
       where: { id: jobId },
@@ -368,6 +399,7 @@ async function processExportJob(jobId: string) {
         processedRows: processed,
         completedAt: new Date(),
         expiresAt,
+        filePath: storedPath,
       },
     });
 
@@ -502,22 +534,38 @@ export const studentExportService = {
       throw new AppError("Export file has expired. Start a new export.", 410);
     }
 
+    const filters = parseFilters(job.filters);
+    const format: StudentExportFormat =
+      filters.format === "xlsx" ? "xlsx" : "pdf";
+
+    if (isS3KeyRef(job.filePath)) {
+      const object = await getObjectStream(fromS3KeyRef(job.filePath));
+      const bytes = await (
+        object.body as { transformToByteArray: () => Promise<Uint8Array> }
+      ).transformToByteArray();
+      const stream: Readable = Readable.from(Buffer.from(bytes));
+      return {
+        fileName:
+          job.fileName ||
+          `students-${jobId}.${format === "xlsx" ? "xlsx" : "pdf"}`,
+        contentType: object.contentType || contentTypeFor(format),
+        stream,
+        filePath: job.filePath,
+      };
+    }
+
     try {
       await access(job.filePath);
     } catch {
       throw new AppError("Export file is missing. Start a new export.", 404);
     }
 
-    const filters = parseFilters(job.filters);
-    const format: StudentExportFormat =
-      filters.format === "xlsx" ? "xlsx" : "pdf";
-
     return {
       fileName:
         job.fileName ||
         `students-${jobId}.${format === "xlsx" ? "xlsx" : "pdf"}`,
       contentType: contentTypeFor(format),
-      stream: createReadStream(job.filePath),
+      stream: createReadStream(job.filePath) as unknown as Readable,
       filePath: job.filePath,
     };
   },
