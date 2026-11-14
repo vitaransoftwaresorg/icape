@@ -42,7 +42,11 @@ jobs:
              # shellcheck disable=SC1091
              . "$NVM_DIR/nvm.sh"
              cd /srv/apps/icape
-             git pull --ff-only origin main
+             # Deploy servers must match origin/main exactly. Discard local overlays
+             # from manual edits/rsync so pull never fails on dirty trees.
+             git fetch origin main
+             git reset --hard origin/main
+             git clean -fd -e backend/.env -e frontend/.env.production -e frontend/.env.local
              cd backend
              npm ci
              npx prisma generate
