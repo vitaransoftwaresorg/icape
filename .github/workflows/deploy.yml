@@ -26,7 +26,7 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
 
-      - name: Deploy to Ubuntu VPS
+      - name: Deploy i-CAPE to Ubuntu VPS
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USER: ${{ secrets.VPS_USER }}
@@ -38,12 +38,21 @@ jobs:
             -o StrictHostKeyChecking=yes \
             "$USER@$HOST" \
             'set -euo pipefail
-             cd /home/icape/app/icape
+             export NVM_DIR="$HOME/.nvm"
+             # shellcheck disable=SC1091
+             . "$NVM_DIR/nvm.sh"
+             cd /srv/apps/icape
              git pull --ff-only origin main
              cd backend
              npm ci
              npx prisma generate
              npx prisma migrate deploy
              npm run build
-             pm2 reload icape-api --update-env
-             pm2 status icape-api'
+             cd ../frontend
+             npm ci
+             npm run build
+             cd ..
+             pm2 startOrReload ecosystem.config.cjs --only icape-api --update-env
+             pm2 startOrReload ecosystem.config.cjs --only icape-web --update-env
+             pm2 save
+             pm2 status icape-api icape-web'
