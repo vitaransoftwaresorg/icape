@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/api";
 import { CURRENT_OLYMPIAD_YEAR, RESULT_OLYMPIADS } from "@/lib/results";
 import { cn } from "@/lib/utils";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 
 type AdminResultRow = {
   id: string;
@@ -229,6 +230,7 @@ export default function AdminUpdateResultsPage() {
   return (
     <div className="space-y-5">
       <div>
+        <AdminBackButton href="/admin/results" className="mb-2" />
         <h1 className="text-2xl font-bold text-brand">Update Results</h1>
         <p className="text-muted">
           Find a student or school, then edit marks, ranks, and status.

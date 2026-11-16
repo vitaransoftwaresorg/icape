@@ -25,6 +25,7 @@ import { apiRequest } from "@/lib/api";
 import { broadcastAuthChanged } from "@/lib/auth-session-sync";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 
 const nav = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -283,7 +284,22 @@ export function AdminShell({ children }: { children: ReactNode }) {
         >
           <Menu className="size-5" />
         </button>
-        <main className="flex-1 p-4 pt-14 md:p-6 md:pt-6">{children}</main>
+        <main className="flex-1 p-4 pt-14 md:p-6 md:pt-6">
+          {pathname !== "/admin/dashboard" &&
+          nav.some((item) => item.href === pathname) ? (
+            <AdminBackButton
+              className="mb-4"
+              onClick={() => {
+                if (window.history.length > 1) {
+                  router.back();
+                } else {
+                  router.push("/admin/dashboard");
+                }
+              }}
+            />
+          ) : null}
+          {children}
+        </main>
       </div>
 
       {open ? (

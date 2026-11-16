@@ -2221,7 +2221,7 @@ export const schoolRegistrationService = {
       state: reg.state,
       status: reg.status,
       students: rows,
-      totals: filteredTotals,
+      totals: { studentCount: total, ...filteredTotals },
       pagination: {
         page,
         limit: input.limit,

@@ -38,7 +38,12 @@ export function SchoolApprovedStudents() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [rows, setRows] = useState<RegistrationStudent[]>([]);
-  const [totals, setTotals] = useState({ imo: 0, iso: 0, ieo: 0 });
+  const [totals, setTotals] = useState({
+    studentCount: 0,
+    imo: 0,
+    iso: 0,
+    ieo: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState<"excel" | "pdf" | "print" | null>(
@@ -62,7 +67,7 @@ export function SchoolApprovedStudents() {
       if (!options?.silent) {
         setError(res.message || "Could not load students");
         setRows([]);
-        setTotals({ imo: 0, iso: 0, ieo: 0 });
+        setTotals({ studentCount: 0, imo: 0, iso: 0, ieo: 0 });
         setTotal(0);
         setTotalPages(1);
         setLoading(false);
@@ -70,7 +75,9 @@ export function SchoolApprovedStudents() {
       return;
     }
     setRows(res.data?.students || []);
-    setTotals(res.data?.totals || { imo: 0, iso: 0, ieo: 0 });
+    setTotals(
+      res.data?.totals || { studentCount: 0, imo: 0, iso: 0, ieo: 0 },
+    );
     setPage(res.data?.pagination.page || nextPage);
     setTotalPages(res.data?.pagination.totalPages || 1);
     setTotal(res.data?.pagination.total || 0);
@@ -176,6 +183,7 @@ export function SchoolApprovedStudents() {
         >
           {(
             [
+              { code: "Students", count: totals.studentCount },
               { code: "IMO", count: totals.imo },
               { code: "ISO", count: totals.iso },
               { code: "IEO", count: totals.ieo },
@@ -199,7 +207,7 @@ export function SchoolApprovedStudents() {
           ))}
           <div className="border-l border-brand/20 bg-brand px-3.5 py-2 text-center sm:px-4">
             <p className="text-[11px] font-semibold tracking-wide text-white/80">
-              Total
+              Entries
             </p>
             <p className="text-base font-bold tabular-nums leading-tight text-white">
               {loading ? "—" : totals.imo + totals.iso + totals.ieo}

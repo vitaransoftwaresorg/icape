@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { apiRequest, getApiUrl } from "@/lib/api";
 import { CURRENT_OLYMPIAD_YEAR, RESULT_GRADES, RESULT_OLYMPIADS } from "@/lib/results";
 import { cn } from "@/lib/utils";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 
 type EditableInvalidRow = {
   rowNumber: number;
@@ -535,6 +536,7 @@ export default function AdminUploadResultsPage() {
   return (
     <div className="space-y-6">
       <div>
+        <AdminBackButton href="/admin/results" className="mb-2" />
         <h1 className="text-2xl font-bold text-brand">Upload Results</h1>
         <p className="text-muted">
           Add results by Excel upload or enter them manually (one or many).

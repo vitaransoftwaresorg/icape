@@ -72,7 +72,7 @@ export function AdminLoginForm() {
         JSON.stringify({ name: adminName, at: Date.now() }),
       );
     } catch {
-      /* ignore */
+      /* ignore e */
     }
     broadcastAuthChanged();
     window.location.assign("/admin/dashboard");

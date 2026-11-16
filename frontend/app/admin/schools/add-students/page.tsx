@@ -5,6 +5,7 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 import { AdminSearchField } from "@/components/admin/admin-search-field";
 import {
   AdminTableShell,
@@ -43,6 +44,7 @@ export default function AdminAddStudentsPage() {
   return (
     <div className="space-y-6">
       <div>
+        <AdminBackButton href="/admin/schools" className="mb-2" />
         <h1 className="text-2xl font-bold text-brand">Add More Students</h1>
         <p className="mt-1 text-sm text-muted">
           Choose an approved school, then continue from student details and

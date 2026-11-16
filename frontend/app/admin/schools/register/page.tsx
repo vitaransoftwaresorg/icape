@@ -7,7 +7,6 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
-  ArrowLeft,
   Check,
   ChevronRight,
   Plus,
@@ -23,6 +22,7 @@ import { computeRegistrationFee, FEE_PER_STUDENT_PER_OLYMPIAD, type PaymentMetho
 import { toTitleCaseInput } from "@/lib/title-case";
 import { cn } from "@/lib/utils";
 import { PaymentFeeSummary } from "@/components/school/payment-fee-summary";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 import { GradeTableFrame } from "@/components/school/grade-table-frame";
 import {
   ensureStudentsForGrade,
@@ -1715,7 +1715,7 @@ function AdminRegisterSchoolPageInner() {
             href="/admin/schools"
             className={buttonVariants({ variant: "accent" })}
           >
-            Back to schools
+            Back
           </Link>
           <Link
             href="/admin/students"
@@ -1744,14 +1744,10 @@ function AdminRegisterSchoolPageInner() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           {accountId ? (
-            <button
-              type="button"
-              className="mb-2 inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-brand"
+            <AdminBackButton
+              className="mb-2"
               onClick={() => exitToRegisterHome()}
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              Back
-            </button>
+            />
           ) : null}
           <h1 className="text-2xl font-bold text-brand">
             {isApprovedEdit

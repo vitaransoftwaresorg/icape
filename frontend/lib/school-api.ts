@@ -148,7 +148,12 @@ export async function fetchMyStudents(input?: {
     state: string;
     status: string;
     students: RegistrationStudent[];
-    totals: { imo: number; iso: number; ieo: number };
+    totals: {
+      studentCount: number;
+      imo: number;
+      iso: number;
+      ieo: number;
+    };
     pagination: {
       page: number;
       limit: number;
