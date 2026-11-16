@@ -2,10 +2,11 @@ import app from "./app";
 import { env } from "./config/env";
 
 const port = env.port;
+const host = env.host;
 
-const server = app.listen(port, () => {
-  console.log(`i-CAPE API running on http://localhost:${port}`);
-  console.log(`Health check: http://localhost:${port}/api/health`);
+const server = app.listen(port, host, () => {
+  console.log(`i-CAPE API running on http://${host}:${port}`);
+  console.log(`Health check: http://${host}:${port}/api/health`);
 });
 
 server.on("error", (error: NodeJS.ErrnoException) => {

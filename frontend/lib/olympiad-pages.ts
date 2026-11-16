@@ -81,7 +81,7 @@ export const olympiadPages: Record<OlympiadPageId, OlympiadPageContent> = {
       "Schools download the School and Student Registration Forms from the i-CAPE website.",
       "Complete school and student details carefully, including olympiad choices (IMO / ISO / IEO).",
       "Remit INR 150 per Olympiad and keep the payment proof.",
-      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 30th September 2026.",
+      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 31th October 2026.",
     ],
     examDatesNote:
       "i-CAPE Innovative Maths Olympiad (IMO) for Olympiad Year 2026-2027 will be held on 14th December 2026 (Monday).",
@@ -140,7 +140,7 @@ export const olympiadPages: Record<OlympiadPageId, OlympiadPageContent> = {
       "Schools download the School and Student Registration Forms from the i-CAPE website.",
       "Complete school and student details carefully, including olympiad choices (IMO / ISO / IEO).",
       "Remit INR 150 per Olympiad and keep the payment proof.",
-      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 30th September 2026.",
+      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 31th October 2026.",
     ],
     examDatesNote:
       "i-CAPE Innovative Science Olympiad (ISO) for Olympiad Year 2026-2027 will be held on 16th December 2026 (Wednesday).",
@@ -199,7 +199,7 @@ export const olympiadPages: Record<OlympiadPageId, OlympiadPageContent> = {
       "Schools download the School and Student Registration Forms from the i-CAPE website.",
       "Complete school and student details carefully, including olympiad choices (IMO / ISO / IEO).",
       "Remit INR 150 per Olympiad and keep the payment proof.",
-      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 30th September 2026.",
+      "Submit filled forms and payment proof to i-CAPE on WhatsApp (+91 80745 63902) on or before 31th October 2026.",
     ],
     examDatesNote:
       "i-CAPE Innovative English Olympiad (IEO) for Olympiad Year 2026-2027 will be held on 18th December 2026 (Friday).",

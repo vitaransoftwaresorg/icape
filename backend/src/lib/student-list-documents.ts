@@ -68,14 +68,16 @@ export function exportFilename(
   ext: string,
   query: {
     schoolCode?: string;
+    schoolName?: string;
     olympiad?: string;
     grade?: number;
     olympiadYear?: string;
   },
 ) {
+  const schoolLabel = query.schoolName?.trim() || query.schoolCode;
   const parts = [
-    prefix,
-    query.schoolCode,
+    schoolLabel ? null : prefix,
+    schoolLabel,
     query.olympiad,
     query.grade != null ? `G${query.grade}` : null,
     query.olympiadYear,

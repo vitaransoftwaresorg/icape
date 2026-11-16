@@ -24,7 +24,7 @@ Do not reinvent buttons, inputs, dialogs, tables, icons, toasts, forms, loaders,
 - Frontend: Next.js App Router, TypeScript, Tailwind, shadcn/ui, Radix, Lucide, TanStack Query, React Hook Form, Zod, Recharts
 - Backend: Express + TypeScript (separate from frontend)
 - DB: PostgreSQL + Prisma
-- Media: Cloudinary (backend secrets only)
+- Media: SeaweedFS S3-compatible object storage on the VPS (backend secrets only)
 
 Do not add competing libraries for the same purpose without a strong reason.
 
@@ -37,5 +37,5 @@ Do not add competing libraries for the same purpose without a strong reason.
 
 ## Security
 
-Never expose `DATABASE_URL`, `AUTH_SECRET`, or `CLOUDINARY_API_SECRET` to the frontend.
+Never expose `DATABASE_URL`, `AUTH_SECRET`, or `S3_SECRET_KEY` to the frontend.
 Never commit secrets. Use `.env` / `.env.example`.

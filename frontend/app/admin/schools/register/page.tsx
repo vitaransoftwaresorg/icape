@@ -26,6 +26,7 @@ import { AdminBackButton } from "@/components/admin/admin-back-button";
 import { GradeTableFrame } from "@/components/school/grade-table-frame";
 import {
   ensureStudentsForGrade,
+  firstFilledGrade,
   gradeStudentIndices,
   GradeSwitchButtons,
   isStudentGrade,
@@ -208,15 +209,97 @@ function studentsReadyForPayment(rows: StudentRow[]) {
   );
 }
 
+function studentsFingerprint(rows: StudentRow[]) {
+  // Content only — draft saves recreate DB ids, so ids must not affect dirty.
+  return JSON.stringify(
+    rows
+      .filter((s) => s.name.trim())
+      .map((s) => ({
+        name: s.name.trim().toUpperCase(),
+        grade: s.grade,
+        section: (s.section || "").trim().toUpperCase(),
+        mobile: sanitizeMobileDigits(s.mobile || ""),
+        imo: Boolean(s.imo),
+        iso: Boolean(s.iso),
+        ieo: Boolean(s.ieo),
+      }))
+      .sort((a, b) =>
+        a.grade !== b.grade
+          ? a.grade - b.grade
+          : a.name !== b.name
+            ? a.name.localeCompare(b.name)
+            : a.section !== b.section
+              ? a.section.localeCompare(b.section)
+              : a.mobile.localeCompare(b.mobile),
+      ),
+  );
+}
+
+function concessionFingerprint(input: string) {
+  return input.trim().replace(/^0+(?=\d)/, "");
+}
+
+const EMPTY_SCHOOL_VALUES: SchoolFormValues = {
+  schoolName: "",
+  address: "",
+  city: "",
+  district: "",
+  state: "",
+  pincode: "",
+  country: "India",
+  countryOther: "",
+  website: "",
+  affiliation: "",
+  affiliationOther: "",
+  trustName: "",
+  schoolMobile: "",
+  landline: "",
+  stdCode: "",
+  email: "",
+  principalName: "",
+  principalMobile: "",
+  principalEmail: "",
+  contactName: "",
+  phone: "",
+  inchargeEmail: "",
+};
+
+function schoolFingerprint(values: SchoolFormValues) {
+  return JSON.stringify({
+    schoolName: (values.schoolName || "").trim(),
+    address: (values.address || "").trim(),
+    city: (values.city || "").trim(),
+    district: (values.district || "").trim(),
+    state: (values.state || "").trim(),
+    pincode: (values.pincode || "").trim(),
+    country: values.country === "Other" ? "Other" : "India",
+    countryOther: (values.countryOther || "").trim(),
+    website: (values.website || "").trim(),
+    affiliation: values.affiliation || "",
+    affiliationOther: (values.affiliationOther || "").trim(),
+    trustName: (values.trustName || "").trim(),
+    schoolMobile: (values.schoolMobile || "").trim(),
+    landline: (values.landline || "").trim(),
+    stdCode: (values.stdCode || "").trim(),
+    email: (values.email || "").trim().toLowerCase(),
+    principalName: (values.principalName || "").trim(),
+    principalMobile: (values.principalMobile || "").trim(),
+    principalEmail: (values.principalEmail || "").trim().toLowerCase(),
+    contactName: (values.contactName || "").trim(),
+    phone: (values.phone || "").trim(),
+    inchargeEmail: (values.inchargeEmail || "").trim().toLowerCase(),
+  });
+}
+
 function resolveResumeStep(
   reg: RegistrationPayload,
   accountId?: string,
 ) {
-  if (
-    reg.status === "UNDER_REVIEW" ||
-    reg.status === "APPROVED" ||
-    reg.status === "REJECTED"
-  ) {
+  // Approved schools open on school details for admin edit.
+  if (reg.status === "APPROVED") {
+    return 2;
+  }
+  if (reg.status === "UNDER_REVIEW" || reg.status === "REJECTED") {
     return 4;
   }
   if (!isSchoolDetailsSaved(reg)) {
@@ -556,6 +639,21 @@ function AdminRegisterSchoolPageInner() {
     "idle" | "importing" | "done" | "error"
   >("idle");
   const [importFileName, setImportFileName] = useState("");
+  const [registrationStatus, setRegistrationStatus] = useState<string | null>(
+    null,
+  );
+  const [studentsBaseline, setStudentsBaseline] = useState(() =>
+    studentsFingerprint([]),
+  );
+  const [schoolBaseline, setSchoolBaseline] = useState(() =>
+    schoolFingerprint(EMPTY_SCHOOL_VALUES),
+  );
+  const [concessionBaseline, setConcessionBaseline] = useState("");
+  const [leaveDialog, setLeaveDialog] = useState<{
+    href?: string;
+    action?: "home";
+  } | null>(null);
+  const [leaveSaving, setLeaveSaving] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const importFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
@@ -564,6 +662,7 @@ function AdminRegisterSchoolPageInner() {
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDraftPayloadRef = useRef("");
   const skipNextDraftRef = useRef(false);
+  const isApprovedEdit = registrationStatus === "APPROVED";
 
   useEffect(() => {
     if (!accountId || !stepReadyRef.current) return;
@@ -631,6 +730,21 @@ function AdminRegisterSchoolPageInner() {
     },
   });
 
+  const watchedSchoolValues = schoolForm.watch();
+  const schoolDirty = useMemo(
+    () => schoolFingerprint(watchedSchoolValues) !== schoolBaseline,
+    [watchedSchoolValues, schoolBaseline],
+  );
+  const studentsDirty = useMemo(
+    () => studentsFingerprint(students) !== studentsBaseline,
+    [students, studentsBaseline],
+  );
+  const concessionDirty =
+    concessionFingerprint(concessionFeeInput) !==
+    concessionFingerprint(concessionBaseline);
+  const hasUnsavedChanges =
+    schoolDirty || studentsDirty || concessionDirty;
+
   const concessionFeePerStudent = useMemo(() => {
     const raw = concessionFeeInput.trim();
     if (!raw) return null;
@@ -683,7 +797,8 @@ function AdminRegisterSchoolPageInner() {
     router.replace(`/admin/schools/register?accountId=${encodeURIComponent(id)}`);
   }
 
-  function exitToRegisterHome() {
+  function performExitToRegisterHome() {
+    const returnToSchools = registrationStatus === "APPROVED";
     clearRememberedAccount();
     setAccountId("");
     setAccountEmail("");
@@ -694,48 +809,40 @@ function AdminRegisterSchoolPageInner() {
     setStep(1);
     setCompletedThrough(0);
     setStudents([]);
+    setStudentsBaseline(studentsFingerprint([]));
+    setConcessionFeeInput("");
+    setConcessionBaseline("");
+    setRegistrationStatus(null);
+    setLeaveDialog(null);
     accountForm.reset();
-    schoolForm.reset({
-      schoolName: "",
-      address: "",
-      city: "",
-      district: "",
-      state: "",
-      pincode: "",
-      country: "India",
-      countryOther: "",
-      website: "",
-      affiliation: "",
-      affiliationOther: "",
-      trustName: "",
-      schoolMobile: "",
-      landline: "",
-      stdCode: "",
-      email: "",
-      principalName: "",
-      principalMobile: "",
-      principalEmail: "",
-      contactName: "",
-      phone: "",
-      inchargeEmail: "",
-    });
-    router.replace("/admin/incomplete-registrations");
+    schoolForm.reset({ ...EMPTY_SCHOOL_VALUES });
+    setSchoolBaseline(schoolFingerprint(EMPTY_SCHOOL_VALUES));
+    router.replace(
+      returnToSchools ? "/admin/schools" : "/admin/incomplete-registrations",
+    );
+  }
+
+  function exitToRegisterHome() {
+    if (hasUnsavedChanges) {
+      setLeaveDialog({ action: "home" });
+      return;
+    }
+    performExitToRegisterHome();
   }
 
   function hydrateFromRegistration(
     account: { id: string; email: string; name: string },
     reg: RegistrationPayload,
   ) {
-    if (reg.status === "APPROVED" || reg.status === "UNDER_REVIEW") {
+    if (reg.status === "UNDER_REVIEW") {
       setError(
-        reg.status === "APPROVED"
-          ? "This school registration is already approved and cannot be edited."
-          : "This registration is under review. Use Payment verification to approve or reject it.",
+        "This registration is under review. Use Payment verification to approve or reject it.",
       );
       setAccountId(account.id);
       setAccountEmail(account.email);
       setAccountName(account.name);
       setSchoolCode(reg.schoolCode || "");
+      setRegistrationStatus(reg.status);
       setCompletedThrough(resolveCompletedThrough(reg, true));
       setLoadingResume(false);
       return;
@@ -745,6 +852,7 @@ function AdminRegisterSchoolPageInner() {
     setAccountEmail(account.email);
     setAccountName(account.name);
     setSchoolCode(reg.schoolCode || "");
+    setRegistrationStatus(reg.status);
     setCompletedThrough(resolveCompletedThrough(reg, true));
     rememberAccount(account.id);
 
@@ -756,7 +864,7 @@ function AdminRegisterSchoolPageInner() {
         ? reg.affiliation
         : "";
 
-    schoolForm.reset({
+    const schoolValues: SchoolFormValues = {
       schoolName: reg.schoolName || "",
       address: reg.address || "",
       city: reg.city || "",
@@ -779,7 +887,9 @@ function AdminRegisterSchoolPageInner() {
       contactName: reg.contactName || "",
       phone: reg.phone || "",
       inchargeEmail: reg.inchargeEmail || "",
-    });
+    };
+    schoolForm.reset(schoolValues);
+    setSchoolBaseline(schoolFingerprint(schoolValues));
 
     const named = (reg.students || [])
       .filter((s) => s.name?.trim())
@@ -794,24 +904,27 @@ function AdminRegisterSchoolPageInner() {
         iso: Boolean(s.iso),
         ieo: Boolean(s.ieo),
       }));
-    setStudents(
-      named.length
-        ? ensureStudentsForGrade(
-            named.map((s) => ({
-              ...s,
-              clientKey: s.id ? undefined : nextStudentKey(),
-            })),
-            activeGrade,
-            emptyStudent,
-            INITIAL_STUDENT_ROWS,
-          )
-        : [],
-    );
-    setConcessionFeeInput(
+    const openGrade = firstFilledGrade(named);
+    setActiveGrade(openGrade);
+    const nextStudentRows = named.length
+      ? ensureStudentsForGrade(
+          named.map((s) => ({
+            ...s,
+            clientKey: s.id ? undefined : nextStudentKey(),
+          })),
+          openGrade,
+          emptyStudent,
+          INITIAL_STUDENT_ROWS,
+        )
+      : [];
+    setStudents(nextStudentRows);
+    setStudentsBaseline(studentsFingerprint(nextStudentRows));
+    const concessionValue =
       reg.concessionFeePerStudent != null && reg.concessionFeePerStudent > 0
         ? String(reg.concessionFeePerStudent)
-        : "",
-    );
+        : "";
+    setConcessionFeeInput(concessionValue);
+    setConcessionBaseline(concessionValue);
     setConcessionFeeError("");
     skipNextDraftRef.current = true;
     lastDraftPayloadRef.current = JSON.stringify(
@@ -855,8 +968,10 @@ function AdminRegisterSchoolPageInner() {
       setAccountEmail(res.data.account.email);
       setAccountName(res.data.account.name);
       setSchoolCode("");
+      setRegistrationStatus(null);
       setCompletedThrough(0);
       setStudents([]);
+      setStudentsBaseline(studentsFingerprint([]));
       setStep(1);
       setDone(null);
       setError("");
@@ -886,6 +1001,42 @@ function AdminRegisterSchoolPageInner() {
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only when entering the step
   }, [step]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const onDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      const anchor = (event.target as HTMLElement | null)?.closest(
+        "a[href]",
+      ) as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const href = anchor.getAttribute("href");
+      if (!href || href.startsWith("#")) return;
+      if (href.startsWith("mailto:") || href.startsWith("tel:")) return;
+      const url = new URL(href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname.startsWith("/admin/schools/register")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setLeaveDialog({ href: `${url.pathname}${url.search}${url.hash}` });
+    };
+    document.addEventListener("click", onDocumentClick, true);
+    return () => document.removeEventListener("click", onDocumentClick, true);
+  }, [hasUnsavedChanges]);
 
   const gradeIndices = useMemo(
     () => gradeStudentIndices(students, activeGrade),
@@ -1110,7 +1261,10 @@ function AdminRegisterSchoolPageInner() {
     applyAccountUrl(res.data.account.id);
   }
 
-  async function onSaveSchool(values: SchoolFormOutput) {
+  async function onSaveSchool(
+    values: SchoolFormOutput,
+    options?: { stay?: boolean },
+  ) {
     setError("");
     setSaving(true);
     const res = await apiRequest<RegistrationPayload>(
@@ -1123,17 +1277,29 @@ function AdminRegisterSchoolPageInner() {
     setSaving(false);
     if (!res.success || !res.data) {
       setError(res.message);
-      return;
+      return false;
     }
     setSchoolCode(res.data.schoolCode || schoolCode);
+    setRegistrationStatus(res.data.status || registrationStatus);
     setCompletedThrough((prev) => Math.max(prev, 2));
+    schoolForm.reset(values);
+    setSchoolBaseline(schoolFingerprint(values));
     setError("");
     stepReadyRef.current = true;
+    if (options?.stay) {
+      return true;
+    }
+    if (isApprovedEdit) {
+      clearRememberedAccount();
+      router.push("/admin/schools");
+      return true;
+    }
     setStep(3);
     if (accountId) writeStoredAdminStep(accountId, 3);
+    return true;
   }
 
-  async function onSaveStudents() {
+  async function onSaveStudents(options?: { stay?: boolean }) {
     setError("");
     const rowErrors: Record<number, string> = {};
     const cleaned = students.filter((s) => s.name.trim());
@@ -1143,11 +1309,11 @@ function AdminRegisterSchoolPageInner() {
       });
       setStudentRowErrors(rowErrors);
       setError("Enter at least one student name");
-      return;
+      return false;
     }
     if (cleaned.length > MAX_STUDENTS_PER_REGISTRATION) {
       setError("Too many students for one registration");
-      return;
+      return false;
     }
     for (const [i, s] of students.entries()) {
       if (!s.name.trim()) continue;
@@ -1164,7 +1330,7 @@ function AdminRegisterSchoolPageInner() {
       if (isStudentGrade(errorGrade) && errorGrade !== activeGrade) {
         setActiveGrade(errorGrade);
       }
-      return;
+      return false;
     }
     setStudentRowErrors({});
     setSaving(true);
@@ -1187,24 +1353,146 @@ function AdminRegisterSchoolPageInner() {
     setSaving(false);
     if (!res.success || !res.data) {
       setError(res.message);
-      return;
+      return false;
     }
     lastDraftPayloadRef.current = JSON.stringify(studentPayload);
+    const nextStudents: StudentRow[] = res.data.students.map((s) => ({
+      id: s.id,
+      registrationNumber: s.registrationNumber,
+      name: s.name,
+      grade: s.grade,
+      section: s.section || "",
+      mobile: s.mobile || "",
+      imo: Boolean(s.imo),
+      iso: Boolean(s.iso),
+      ieo: Boolean(s.ieo),
+    }));
+    const openGrade = firstFilledGrade(nextStudents);
+    setActiveGrade(openGrade);
     setStudents(
-      res.data.students.map((s) => ({
-        id: s.id,
-        registrationNumber: s.registrationNumber,
-        name: s.name,
-        grade: s.grade,
-        section: s.section || "",
-        mobile: s.mobile || "",
-        imo: Boolean(s.imo),
-        iso: Boolean(s.iso),
-        ieo: Boolean(s.ieo),
-      })),
+      ensureStudentsForGrade(
+        nextStudents,
+        openGrade,
+        emptyStudent,
+        INITIAL_STUDENT_ROWS,
+      ),
     );
+    setStudentsBaseline(studentsFingerprint(nextStudents));
+    setRegistrationStatus(res.data.status || registrationStatus);
     setCompletedThrough((prev) => Math.max(prev, 3));
+    if (options?.stay) {
+      return true;
+    }
+    if (isApprovedEdit) {
+      clearRememberedAccount();
+      router.push("/admin/schools");
+      return true;
+    }
     goToStep(4);
+    return true;
+  }
+
+  async function onSaveConcession(options?: { stay?: boolean }) {
+    setError("");
+    const concessionRaw = concessionFeeInput.trim();
+    if (concessionRaw) {
+      const n = Number(concessionRaw);
+      if (
+        !Number.isInteger(n) ||
+        n < 1 ||
+        n > FEE_PER_STUDENT_PER_OLYMPIAD
+      ) {
+        setConcessionFeeError(
+          `Enter a whole amount from ₹1 to ₹${FEE_PER_STUDENT_PER_OLYMPIAD}`,
+        );
+        setError("Fix the concession fee before saving.");
+        return false;
+      }
+    }
+    setConcessionFeeError("");
+    setSaving(true);
+    const res = await apiRequest<RegistrationPayload>(
+      `/admin/school-registrations/accounts/${accountId}/concession`,
+      {
+        method: "PUT",
+        body: {
+          concessionFeePerStudent: concessionRaw ? Number(concessionRaw) : null,
+        },
+      },
+    );
+    setSaving(false);
+    if (!res.success || !res.data) {
+      setError(res.message);
+      return false;
+    }
+    const nextConcession =
+      res.data.concessionFeePerStudent != null &&
+      res.data.concessionFeePerStudent > 0
+        ? String(res.data.concessionFeePerStudent)
+        : "";
+    setConcessionFeeInput(nextConcession);
+    setConcessionBaseline(nextConcession);
+    setRegistrationStatus(res.data.status || registrationStatus);
+    if (options?.stay) {
+      return true;
+    }
+    if (isApprovedEdit) {
+      clearRememberedAccount();
+      router.push("/admin/schools");
+      return true;
+    }
+    return true;
+  }
+
+  async function saveCurrentStepForLeave() {
+    if (schoolDirty) {
+      let saved = false;
+      await schoolForm.handleSubmit(async (values) => {
+        saved = await onSaveSchool(values, { stay: true });
+      })();
+      if (!saved) return false;
+    }
+    if (studentsDirty) {
+      const ok = await onSaveStudents({ stay: true });
+      if (!ok) return false;
+    }
+    if (concessionDirty) {
+      return onSaveConcession({ stay: true });
+    }
+    return true;
+  }
+
+  async function confirmLeaveSave() {
+    if (!leaveDialog) return;
+    setLeaveSaving(true);
+    const ok = await saveCurrentStepForLeave();
+    setLeaveSaving(false);
+    if (!ok) {
+      setLeaveDialog(null);
+      return;
+    }
+    const pending = leaveDialog;
+    setLeaveDialog(null);
+    if (pending.action === "home") {
+      performExitToRegisterHome();
+      return;
+    }
+    if (pending.href) {
+      router.push(pending.href);
+    }
+  }
+
+  function confirmLeaveDiscard() {
+    if (!leaveDialog) return;
+    const pending = leaveDialog;
+    setLeaveDialog(null);
+    if (pending.action === "home") {
+      performExitToRegisterHome();
+      return;
+    }
+    if (pending.href) {
+      router.push(pending.href);
+    }
   }
 
   async function onImportExcel(file: File | null) {
@@ -1254,9 +1542,11 @@ function AdminRegisterSchoolPageInner() {
         mobile: sanitizeMobileDigits(s.mobile),
       }),
     );
+    const openGrade = firstFilledGrade(imported);
+    setActiveGrade(openGrade);
     const nextRows = ensureStudentsForGrade(
-      withTrailingEmptyRow(imported, activeGrade),
-      activeGrade,
+      withTrailingEmptyRow(imported, openGrade),
+      openGrade,
       emptyStudent,
       INITIAL_STUDENT_ROWS,
     );
@@ -1460,12 +1750,16 @@ function AdminRegisterSchoolPageInner() {
             />
           ) : null}
           <h1 className="text-2xl font-bold text-brand">
-            {accountId ? "Continue school registration" : "Register school"}
+            {isApprovedEdit
+              ? "Edit school"
+              : accountId
+                ? "Continue school registration"
+                : "Register school"}
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Admin direct registration — account, school details, students, then
-            confirm and approve. Incomplete work appears under Incomplete
-            registrations.
+            {isApprovedEdit
+              ? "Update school details or students. Save Changes appears after you edit something."
+              : "Admin direct registration — account, school details, students, then confirm and approve. Incomplete work appears under Incomplete registrations."}
           </p>
           {accountId ? (
             <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 text-[1.05rem] leading-snug text-muted">
@@ -1729,7 +2023,9 @@ function AdminRegisterSchoolPageInner() {
 
       {step === 2 ? (
         <form
-          onSubmit={schoolForm.handleSubmit(onSaveSchool)}
+          onSubmit={schoolForm.handleSubmit((values) =>
+            void onSaveSchool(values),
+          )}
           className="space-y-5 rounded-2xl border border-border bg-white p-5"
           noValidate
         >
@@ -1973,11 +2269,17 @@ function AdminRegisterSchoolPageInner() {
             </div>
           </div>
 
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button type="submit" variant="accent" disabled={saving}>
-              {saving ? "Saving…" : "Save & continue to students"}
-            </Button>
-          </div>
+          {schoolDirty ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="submit" variant="accent" disabled={saving}>
+                {saving
+                  ? "Saving…"
+                  : isApprovedEdit || completedThrough >= 2
+                    ? "Save Changes"
+                    : "Save & continue to students"}
+              </Button>
+            </div>
+          ) : null}
         </form>
       ) : null}
 
@@ -2344,24 +2646,34 @@ function AdminRegisterSchoolPageInner() {
             </Button>
           </div>
 
-          <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="accent"
-              disabled={saving}
-              onClick={() => void onSaveStudents()}
-            >
-              {saving ? "Saving…" : "Save & continue"}
-            </Button>
-          </div>
+          {studentsDirty ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="accent"
+                disabled={saving}
+                onClick={() => void onSaveStudents()}
+              >
+                {saving
+                  ? "Saving…"
+                  : isApprovedEdit || completedThrough >= 3
+                    ? "Save Changes"
+                    : "Save & continue"}
+              </Button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
       {step === 4 ? (
         <div className="space-y-4 rounded-2xl border border-border bg-white p-5">
-          <h2 className="text-lg font-bold text-brand">Confirm & approve</h2>
+          <h2 className="text-lg font-bold text-brand">
+            {isApprovedEdit ? "Registration summary" : "Confirm & approve"}
+          </h2>
           <p className="text-sm text-muted">
-            Review the fee, then register and approve this school.
+            {isApprovedEdit
+              ? "This school is already approved. Change the concession fee and save if needed."
+              : "Review the fee, then register and approve this school."}
           </p>
           <PaymentFeeSummary
             variant="admin"
@@ -2409,14 +2721,77 @@ function AdminRegisterSchoolPageInner() {
             ) : null}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
-            <Button
-              type="button"
-              variant="accent"
-              disabled={saving}
-              onClick={() => void onSubmitPayment()}
-            >
-              {saving ? "Registering…" : "Register & approve"}
-            </Button>
+            {concessionDirty ? (
+              <Button
+                type="button"
+                variant="accent"
+                disabled={saving}
+                onClick={() => void onSaveConcession()}
+              >
+                {saving ? "Saving…" : "Save Changes"}
+              </Button>
+            ) : null}
+            {isApprovedEdit ? null : (
+              <Button
+                type="button"
+                variant="accent"
+                disabled={saving}
+                onClick={() => void onSubmitPayment()}
+              >
+                {saving ? "Registering…" : "Register & approve"}
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {leaveDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brand/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-brand">Unsaved changes</h2>
+                <p className="mt-1 text-sm text-muted">
+                  You have edits that are not saved yet. Save them, discard them,
+                  or stay on this page.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setLeaveDialog(null)}
+                disabled={leaveSaving}
+              >
+                <X className="size-4" aria-hidden />
+              </Button>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={leaveSaving}
+                onClick={() => setLeaveDialog(null)}
+              >
+                Keep editing
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={leaveSaving}
+                onClick={confirmLeaveDiscard}
+              >
+                Discard
+              </Button>
+              <Button
+                type="button"
+                variant="accent"
+                disabled={leaveSaving}
+                onClick={() => void confirmLeaveSave()}
+              >
+                {leaveSaving ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </div>
       ) : null}

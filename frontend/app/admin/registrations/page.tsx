@@ -116,9 +116,12 @@ function AdminRegistrationsPageInner() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const statusFromUrl = resolveStatusParam(searchParams.get("status"));
+  const idFromUrl = searchParams.get("id")?.trim() || "";
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState(statusFromUrl);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    idFromUrl || null,
+  );
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -127,6 +130,13 @@ function AdminRegistrationsPageInner() {
     setStatus(statusFromUrl);
     setPage(1);
   }, [statusFromUrl]);
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    setSelectedId(idFromUrl);
+    setNote("");
+    setActionError("");
+  }, [idFromUrl]);
 
   const listQuery = useQuery({
     queryKey: adminQueryKeys.registrations(page, status),
@@ -169,12 +179,20 @@ function AdminRegistrationsPageInner() {
     setActionError("");
     setNote("");
     setSelectedId(id);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("id", id);
+    const qs = params.toString();
+    router.replace(qs ? `/admin/registrations?${qs}` : "/admin/registrations");
   }
 
   function closeDetail() {
     setSelectedId(null);
     setNote("");
     setActionError("");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("id");
+    const qs = params.toString();
+    router.replace(qs ? `/admin/registrations?${qs}` : "/admin/registrations");
   }
 
   async function verify(action: "approve" | "reject") {
@@ -256,7 +274,8 @@ function AdminRegistrationsPageInner() {
                 <th className="px-4 py-3 font-semibold">School</th>
                 <th className="px-3 py-3 font-semibold">School code</th>
                 <th className="px-3 py-3 font-semibold">Submitted</th>
-                <th className="px-3 py-3 font-semibold">Amount</th>
+                <th className="px-3 py-3 text-center font-semibold">Entries</th>
+                <th className="px-3 py-3 font-semibold">Total paid</th>
                 <th className="px-3 py-3 font-semibold">Method</th>
                 <th className="px-3 py-3 font-semibold">Reference</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
@@ -274,13 +293,13 @@ function AdminRegistrationsPageInner() {
               ))}
               {!showInitialLoading && rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-muted">
+                  <td colSpan={9} className="px-4 py-10 text-center text-muted">
                     No payments in this filter.
                   </td>
                 </tr>
               ) : null}
               {showInitialLoading ? (
-                <AdminTableSkeletonRows columns={8} rows={8} />
+                <AdminTableSkeletonRows columns={9} rows={8} />
               ) : null}
             </tbody>
           </table>
@@ -364,6 +383,9 @@ function RegistrationRow({
       </td>
       <td className="px-3 py-3 text-sm text-brand">
         {formatDate(row.submittedAt)}
+      </td>
+      <td className="px-3 py-3 text-center font-bold tabular-nums text-brand">
+        {row.olympiadTotal}
       </td>
       <td className="px-3 py-3 font-semibold tabular-nums text-brand">
         {formatMoney(row.payment?.amountExpected)}
@@ -508,9 +530,8 @@ function VerificationDialog({
 
               <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-brand-soft/30 p-4">
                 <PaymentFact
-                  label="Amount"
-                  value={formatMoney(selected.payment?.amountExpected)}
-                  emphasize
+                  label="Olympiad entries"
+                  value={String(selected.olympiadTotal)}
                 />
                 <PaymentFact
                   label="Fee per Olympiad"
@@ -525,21 +546,6 @@ function VerificationDialog({
                     selected.concessionFeePerStudent > 0
                   }
                 />
-                <PaymentFact label="Method" value={paymentMethod} />
-                <PaymentFact
-                  label={reference.label.replace(" *", "")}
-                  value={selected.payment?.utr || "—"}
-                  mono
-                  className="col-span-2"
-                />
-                <PaymentFact
-                  label="Students"
-                  value={String(selected.studentCount)}
-                />
-                <PaymentFact
-                  label="Olympiad entries"
-                  value={String(selected.olympiadTotal)}
-                />
                 <PaymentFact
                   label="Fee calculation"
                   value={`${selected.olympiadTotal} × ₹${
@@ -548,6 +554,29 @@ function VerificationDialog({
                       ? selected.concessionFeePerStudent
                       : 150
                   }`}
+                />
+                <PaymentFact
+                  label="Total paid"
+                  value={formatMoney(
+                    selected.payment?.amountExpected ??
+                      selected.feeExpected ??
+                      selected.olympiadTotal *
+                        (selected.concessionFeePerStudent != null &&
+                        selected.concessionFeePerStudent > 0
+                          ? selected.concessionFeePerStudent
+                          : 150),
+                  )}
+                  emphasize
+                />
+                <PaymentFact label="Method" value={paymentMethod} />
+                <PaymentFact
+                  label={reference.label.replace(" *", "")}
+                  value={selected.payment?.utr || "—"}
+                  mono
+                />
+                <PaymentFact
+                  label="Students"
+                  value={String(selected.studentCount)}
                   className="col-span-2"
                 />
                 <PaymentFact

@@ -188,7 +188,8 @@ function serializeRegistration(
         ? null
         : {
             id: reg.payment.id,
-            amountExpected: Number(reg.payment.amountExpected),
+            // Live total = olympiad program slots × fee per slot
+            amountExpected: fee,
             paymentMethod: reg.payment.paymentMethod,
             utr: reg.payment.utr,
             proofUrl: reg.payment.proofUrl,
@@ -278,13 +279,24 @@ async function assertPaymentReferenceAvailable(
 
 function assertEditable(
   status: RegistrationStatus,
+  options?: { allowApproved?: boolean },
 ) {
   if (status === RegistrationStatus.UNDER_REVIEW) {
     throw new AppError("Registration is under review and cannot be edited", 400);
   }
-  if (status === RegistrationStatus.APPROVED) {
+  if (status === RegistrationStatus.APPROVED && !options?.allowApproved) {
     throw new AppError("Registration is approved and cannot be edited", 400);
   }
+}
+
+function statusAfterAdminEdit(current: RegistrationStatus) {
+  if (current === RegistrationStatus.REJECTED) {
+    return RegistrationStatus.REJECTED;
+  }
+  if (current === RegistrationStatus.APPROVED) {
+    return RegistrationStatus.APPROVED;
+  }
+  return RegistrationStatus.DRAFT;
 }
 
 export const schoolRegistrationService = {
@@ -386,6 +398,7 @@ export const schoolRegistrationService = {
       phone: string;
       inchargeEmail: string;
     },
+    options?: { allowApproved?: boolean },
   ) {
     const year = CURRENT_OLYMPIAD_YEAR;
     let reg = await loadRegistration(accountId, year);
@@ -394,7 +407,7 @@ export const schoolRegistrationService = {
       reg = await loadRegistration(accountId, year);
     }
     if (!reg) throw new AppError("Registration not found", 404);
-    assertEditable(reg.status);
+    assertEditable(reg.status, { allowApproved: options?.allowApproved });
 
     // School code is system-assigned and unique — never overwrite from client
     let schoolCode = reg.schoolCode?.trim() || "";
@@ -432,11 +445,8 @@ export const schoolRegistrationService = {
         phone: data.phone,
         inchargeEmail: data.inchargeEmail,
         currentStep: Math.max(reg.currentStep, 2),
-        // Keep REJECTED until payment is resubmitted so the school still sees the reason
-        status:
-          reg.status === RegistrationStatus.REJECTED
-            ? RegistrationStatus.REJECTED
-            : RegistrationStatus.DRAFT,
+        // Keep APPROVED/REJECTED; only drafts reset to DRAFT.
+        status: statusAfterAdminEdit(reg.status),
       },
       include: {
         students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
@@ -463,12 +473,13 @@ export const schoolRegistrationService = {
       draft?: boolean;
       replaceAll?: boolean;
       finalize?: boolean;
+      allowApproved?: boolean;
     },
   ) {
     const year = CURRENT_OLYMPIAD_YEAR;
     const reg = await loadRegistration(accountId, year);
     if (!reg) throw new AppError("Complete school details first", 400);
-    assertEditable(reg.status);
+    assertEditable(reg.status, { allowApproved: options?.allowApproved });
     assertSchoolDetailsComplete(reg);
 
     const draft = Boolean(options?.draft);
@@ -626,6 +637,13 @@ export const schoolRegistrationService = {
       if (!draft && allStudents.length === 0) {
         throw new AppError("Add at least one student", 400);
       }
+      const feePerSlot =
+        typeof reg.concessionFeePerStudent === "number" &&
+        reg.concessionFeePerStudent > 0
+          ? reg.concessionFeePerStudent
+          : PAYMENT_DETAILS.feeAmount;
+      const amountExpected = computeRegistrationFee(allStudents, feePerSlot);
+
       await prisma.schoolRegistration.update({
         where: { id: reg.id },
         data: {
@@ -634,12 +652,16 @@ export const schoolRegistrationService = {
           currentStep: draft
             ? Math.max(reg.currentStep, 2)
             : Math.max(reg.currentStep, 3),
-          status:
-            reg.status === RegistrationStatus.REJECTED
-              ? RegistrationStatus.REJECTED
-              : RegistrationStatus.DRAFT,
+          status: statusAfterAdminEdit(reg.status),
         },
       });
+
+      if (reg.status === RegistrationStatus.APPROVED) {
+        await prisma.registrationPayment.updateMany({
+          where: { schoolRegistrationId: reg.id },
+          data: { amountExpected },
+        });
+      }
     }
 
     return serializeRegistration(await loadRegistration(accountId, year));
@@ -1016,11 +1038,26 @@ export const schoolRegistrationService = {
     ]);
 
     return {
-      registrations: rows.map((row) => ({
-        ...row,
-        olympiadYear: OLYMPIAD_YEAR_META,
-        olympiadTotal: row.imoCount + row.isoCount + row.ieoCount,
-      })),
+      registrations: rows.map((row) => {
+        const olympiadTotal = row.imoCount + row.isoCount + row.ieoCount;
+        const feePerSlot =
+          typeof row.concessionFeePerStudent === "number" &&
+          row.concessionFeePerStudent > 0
+            ? row.concessionFeePerStudent
+            : PAYMENT_DETAILS.feeAmount;
+        const amountExpected = olympiadTotal * feePerSlot;
+        return {
+          ...row,
+          olympiadYear: OLYMPIAD_YEAR_META,
+          olympiadTotal,
+          payment: row.payment
+            ? {
+                ...row.payment,
+                amountExpected,
+              }
+            : null,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -1192,9 +1229,8 @@ export const schoolRegistrationService = {
       prisma.registrationStudent.findMany({
         where: studentWhere,
         orderBy: [
-          { schoolRegistration: { schoolName: "asc" } },
-          { grade: "asc" },
-          { name: "asc" },
+          { createdAt: "desc" },
+          { id: "desc" },
         ],
         skip: (input.page - 1) * input.limit,
         take: input.limit,
@@ -1270,6 +1306,427 @@ export const schoolRegistrationService = {
     };
   },
 
+  async adminUpdateStudent(
+    studentId: string,
+    input: {
+      name: string;
+      grade: number;
+      section?: string;
+      mobile?: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    },
+  ) {
+    const existing = await prisma.registrationStudent.findUnique({
+      where: { id: studentId },
+      include: {
+        schoolRegistration: {
+          select: {
+            id: true,
+            schoolCode: true,
+            schoolName: true,
+            city: true,
+            state: true,
+            status: true,
+            olympiadYear: true,
+            concessionFeePerStudent: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) throw new AppError("Student not found", 404);
+    if (existing.schoolRegistration.olympiadYear !== CURRENT_OLYMPIAD_YEAR) {
+      throw new AppError("Student is outside the active Olympiad Year", 400);
+    }
+    if (existing.schoolRegistration.status !== RegistrationStatus.APPROVED) {
+      throw new AppError(
+        "Only approved registration students can be edited here",
+        400,
+      );
+    }
+
+    const name = input.name.trim().toUpperCase();
+    const section = (input.section || "").trim().toUpperCase();
+    const mobile = (() => {
+      const digits = (input.mobile || "").replace(/\D/g, "");
+      if (digits.length === 10) return digits;
+      if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+      if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+      return "";
+    })();
+
+    if (name.length < 2) {
+      throw new AppError("Student name is required", 400);
+    }
+    if (!input.imo && !input.iso && !input.ieo) {
+      throw new AppError(
+        "Select at least one olympiad (Maths / Science / English)",
+        400,
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.registrationStudent.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          grade: input.grade,
+          section,
+          mobile,
+          imo: input.imo,
+          iso: input.iso,
+          ieo: input.ieo,
+        },
+      });
+
+      const allStudents = await tx.registrationStudent.findMany({
+        where: { schoolRegistrationId: existing.schoolRegistrationId },
+        select: {
+          name: true,
+          grade: true,
+          section: true,
+          mobile: true,
+          imo: true,
+          iso: true,
+          ieo: true,
+        },
+      });
+
+      const counts = olympiadCountsFromStudents(allStudents);
+      const feePerSlot =
+        typeof existing.schoolRegistration.concessionFeePerStudent ===
+          "number" &&
+        existing.schoolRegistration.concessionFeePerStudent > 0
+          ? existing.schoolRegistration.concessionFeePerStudent
+          : PAYMENT_DETAILS.feeAmount;
+      const amountExpected = computeRegistrationFee(allStudents, feePerSlot);
+
+      await tx.schoolRegistration.update({
+        where: { id: existing.schoolRegistrationId },
+        data: {
+          gradeCounts: gradeCountsFromStudents(allStudents),
+          ...counts,
+        },
+      });
+
+      // Keep payment total in sync with current olympiad program slots.
+      await tx.registrationPayment.updateMany({
+        where: { schoolRegistrationId: existing.schoolRegistrationId },
+        data: { amountExpected },
+      });
+
+      // Keep results Student demographics in sync when present for this year.
+      await tx.student.updateMany({
+        where: {
+          registrationNumber: existing.registrationNumber,
+          olympiadYear: CURRENT_OLYMPIAD_YEAR,
+        },
+        data: { name, grade: input.grade },
+      });
+    });
+
+    const updated = await prisma.registrationStudent.findUniqueOrThrow({
+      where: { id: existing.id },
+      include: {
+        schoolRegistration: {
+          select: {
+            id: true,
+            schoolCode: true,
+            schoolName: true,
+            city: true,
+            state: true,
+            status: true,
+            olympiadYear: true,
+          },
+        },
+      },
+    });
+
+    return this.mapAdminStudentRow(updated);
+  },
+
+  /**
+   * Append students to an approved school registration.
+   * Existing students are never deleted. Exact name+grade+section matches are skipped.
+   */
+  async adminAppendStudents(
+    schoolCode: string,
+    students: Array<{
+      name: string;
+      grade: number;
+      section?: string;
+      mobile?: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    }>,
+  ) {
+    const code = schoolCode.trim();
+    if (!code) throw new AppError("School code is required", 400);
+
+    const reg = await prisma.schoolRegistration.findFirst({
+      where: {
+        schoolCode: code,
+        olympiadYear: CURRENT_OLYMPIAD_YEAR,
+        status: RegistrationStatus.APPROVED,
+      },
+      select: {
+        id: true,
+        schoolCode: true,
+        schoolName: true,
+        city: true,
+        state: true,
+        status: true,
+        olympiadYear: true,
+        concessionFeePerStudent: true,
+        students: {
+          select: {
+            registrationNumber: true,
+            name: true,
+            grade: true,
+            section: true,
+          },
+        },
+      },
+    });
+
+    if (!reg) {
+      throw new AppError(
+        "Approved school registration not found for this school code",
+        404,
+      );
+    }
+
+    const existingKeys = new Set(
+      reg.students.map(
+        (s) =>
+          `${s.name.trim().toUpperCase()}|${s.grade}|${(s.section || "").trim().toUpperCase()}`,
+      ),
+    );
+
+    const prepared: Array<{
+      name: string;
+      grade: number;
+      section: string;
+      mobile: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+    }> = [];
+    let skipped = 0;
+    const skipNotes: string[] = [];
+
+    for (const raw of students) {
+      const name = raw.name.trim().toUpperCase();
+      const section = (raw.section || "").trim().toUpperCase();
+      const grade = raw.grade;
+      if (name.length < 2 || !Number.isInteger(grade) || grade < 3 || grade > 10) {
+        continue;
+      }
+      if (!raw.imo && !raw.iso && !raw.ieo) {
+        continue;
+      }
+      const key = `${name}|${grade}|${section}`;
+      if (existingKeys.has(key)) {
+        skipped += 1;
+        skipNotes.push(`${name} · Grade ${grade}${section ? `-${section}` : ""}`);
+        continue;
+      }
+      existingKeys.add(key);
+
+      const digits = (raw.mobile || "").replace(/\D/g, "");
+      const mobile =
+        digits.length === 10
+          ? digits
+          : digits.length === 12 && digits.startsWith("91")
+            ? digits.slice(2)
+            : digits.length === 11 && digits.startsWith("0")
+              ? digits.slice(1)
+              : "";
+
+      prepared.push({
+        name,
+        grade,
+        section,
+        mobile,
+        imo: raw.imo,
+        iso: raw.iso,
+        ieo: raw.ieo,
+      });
+    }
+
+    if (prepared.length === 0 && skipped === 0) {
+      throw new AppError("No valid students to add", 400);
+    }
+
+    if (reg.students.length + prepared.length > MAX_STUDENTS_PER_REGISTRATION) {
+      throw new AppError("Too many students for one registration", 400);
+    }
+
+    const freshNumbers =
+      prepared.length > 0
+        ? await allocateStudentRegistrationNumbers(prepared.length)
+        : [];
+
+    if (prepared.some((_, i) => !/^\d{8}$/.test(freshNumbers[i] || ""))) {
+      throw new AppError("Failed to allocate student registration numbers", 500);
+    }
+
+    let addedRows: Array<{
+      id: string;
+      registrationNumber: string;
+      name: string;
+      grade: number;
+      section: string;
+      mobile: string;
+      imo: boolean;
+      iso: boolean;
+      ieo: boolean;
+      schoolRegistration: {
+        id: string;
+        schoolCode: string;
+        schoolName: string;
+        city: string;
+        state: string;
+        status: RegistrationStatus;
+        olympiadYear: string;
+      };
+    }> = [];
+
+    if (prepared.length > 0) {
+      // Stagger createdAt so Excel row order is preserved with createdAt DESC
+      // (row 1 = newest → shows first; row N = oldest in this batch).
+      const batchBaseMs = Date.now();
+      await prisma.$transaction(async (tx) => {
+        await tx.registrationStudent.createMany({
+          data: prepared.map((s, i) => ({
+            schoolRegistrationId: reg.id,
+            registrationNumber: freshNumbers[i]!,
+            name: s.name,
+            grade: s.grade,
+            section: s.section,
+            mobile: s.mobile,
+            imo: s.imo,
+            iso: s.iso,
+            ieo: s.ieo,
+            createdAt: new Date(batchBaseMs + (prepared.length - i)),
+          })),
+        });
+
+        const allStudents = await tx.registrationStudent.findMany({
+          where: { schoolRegistrationId: reg.id },
+          select: {
+            name: true,
+            grade: true,
+            section: true,
+            mobile: true,
+            imo: true,
+            iso: true,
+            ieo: true,
+          },
+        });
+
+        const feePerSlot =
+          typeof reg.concessionFeePerStudent === "number" &&
+          reg.concessionFeePerStudent > 0
+            ? reg.concessionFeePerStudent
+            : PAYMENT_DETAILS.feeAmount;
+
+        await tx.schoolRegistration.update({
+          where: { id: reg.id },
+          data: {
+            gradeCounts: gradeCountsFromStudents(allStudents),
+            ...olympiadCountsFromStudents(allStudents),
+          },
+        });
+
+        await tx.registrationPayment.updateMany({
+          where: { schoolRegistrationId: reg.id },
+          data: {
+            amountExpected: computeRegistrationFee(allStudents, feePerSlot),
+          },
+        });
+      });
+
+      addedRows = await prisma.registrationStudent.findMany({
+        where: {
+          schoolRegistrationId: reg.id,
+          registrationNumber: { in: freshNumbers },
+        },
+        include: {
+          schoolRegistration: {
+            select: {
+              id: true,
+              schoolCode: true,
+              schoolName: true,
+              city: true,
+              state: true,
+              status: true,
+              olympiadYear: true,
+            },
+          },
+        },
+      });
+    }
+
+    return {
+      schoolCode: reg.schoolCode,
+      schoolName: reg.schoolName,
+      added: addedRows.length,
+      skipped,
+      skipNotes: skipNotes.slice(0, 20),
+      students: addedRows.map((s) => this.mapAdminStudentRow(s)),
+    };
+  },
+
+  async adminAddStudent(input: {
+    schoolCode: string;
+    name: string;
+    grade: number;
+    section?: string;
+    mobile?: string;
+    imo: boolean;
+    iso: boolean;
+    ieo: boolean;
+  }) {
+    const result = await this.adminAppendStudents(input.schoolCode, [input]);
+    if (result.added === 0) {
+      throw new AppError(
+        "This student already exists for the school (same name, grade, and section). Edit the existing record instead.",
+        409,
+      );
+    }
+    return result.students[0];
+  },
+
+  async adminImportAndAppendStudents(schoolCode: string, buffer: Buffer) {
+    const parsed = await this.importStudentsFromExcel(buffer);
+    const valid = parsed.students.filter(
+      (s) =>
+        !s.importWarning &&
+        s.name.trim().length >= 2 &&
+        Number.isInteger(s.grade) &&
+        s.grade >= 3 &&
+        s.grade <= 10 &&
+        (s.imo || s.iso || s.ieo),
+    );
+    if (valid.length === 0) {
+      throw new AppError(
+        parsed.errors[0] ||
+          "No valid student rows found in Excel. Fix warnings and try again.",
+        400,
+      );
+    }
+    const result = await this.adminAppendStudents(schoolCode, valid);
+    return {
+      ...result,
+      parsed: parsed.students.length,
+      parseErrors: parsed.errors.slice(0, 30),
+    };
+  },
+
   async adminExportStudents(
     input: {
       q?: string;
@@ -1303,9 +1760,9 @@ export const schoolRegistrationService = {
     const rows = await prisma.registrationStudent.findMany({
       where: studentWhere,
       orderBy: [
-        { schoolRegistration: { schoolName: "asc" } },
         { grade: "asc" },
-        { name: "asc" },
+        { createdAt: "desc" },
+        { id: "desc" },
       ],
       take: EXPORT_MAX,
       include: {
@@ -1338,10 +1795,13 @@ export const schoolRegistrationService = {
       ...reg,
       students: [],
     });
+    const liveAmount = serialized?.feeExpected ?? 0;
+    const payment = serializePayment(reg.payment);
     return {
       ...serialized,
-      // Admin always sees the submitted payment, including after reject
-      payment: serializePayment(reg.payment),
+      // Admin always sees the submitted payment, including after reject.
+      // Amount is live: current olympiad entries × fee per slot.
+      payment: payment ? { ...payment, amountExpected: liveAmount } : null,
       schoolAccount: reg.schoolAccount,
     };
   },
@@ -1444,6 +1904,36 @@ export const schoolRegistrationService = {
     }
 
     return this.adminGet(id);
+  },
+
+  /** Admin updates concession fee (including for already-approved schools). */
+  async adminUpdateConcession(
+    accountId: string,
+    concessionFeePerStudent?: number | null,
+  ) {
+    const year = CURRENT_OLYMPIAD_YEAR;
+    const reg = await loadRegistration(accountId, year);
+    if (!reg) throw new AppError("Registration not found", 404);
+    assertEditable(reg.status, { allowApproved: true });
+
+    const concession =
+      typeof concessionFeePerStudent === "number" && concessionFeePerStudent > 0
+        ? concessionFeePerStudent
+        : null;
+    const feePerSlot = concession ?? PAYMENT_DETAILS.feeAmount;
+    const amountExpected = computeRegistrationFee(reg.students, feePerSlot);
+
+    await prisma.schoolRegistration.update({
+      where: { id: reg.id },
+      data: { concessionFeePerStudent: concession },
+    });
+
+    await prisma.registrationPayment.updateMany({
+      where: { schoolRegistrationId: reg.id },
+      data: { amountExpected },
+    });
+
+    return serializeRegistration(await loadRegistration(accountId, year));
   },
 
   /**

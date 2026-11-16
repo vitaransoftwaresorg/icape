@@ -1,0 +1,62 @@
+name: Deploy to VPS using PM2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Deploy i-CAPE to Ubuntu VPS
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER: ${{ secrets.VPS_USER }}
+          PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            -p "$PORT" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            "$USER@$HOST" \
+            'set -euo pipefail
+             export NVM_DIR="$HOME/.nvm"
+             # shellcheck disable=SC1091
+             . "$NVM_DIR/nvm.sh"
+             cd /srv/apps/icape
+             # Deploy servers must match origin/main exactly. Discard local overlays
+             # from manual edits/rsync so pull never fails on dirty trees.
+             git fetch origin main
+             git reset --hard origin/main
+             git clean -fd -e backend/.env -e frontend/.env.production -e frontend/.env.local
+             cd backend
+             npm ci
+             npx prisma generate
+             npx prisma migrate deploy
+             npm run build
+             cd ../frontend
+             npm ci
+             npm run build
+             cd ..
+             pm2 startOrReload ecosystem.config.cjs --only icape-api --update-env
+             pm2 startOrReload ecosystem.config.cjs --only icape-web --update-env
+             pm2 save
+             pm2 status icape-api icape-web'

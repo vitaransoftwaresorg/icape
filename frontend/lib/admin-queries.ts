@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api";
+import { apiRequest, getApiUrl } from "@/lib/api";
 import type { PaymentMethod } from "@/lib/payment-details";
 import { LIVE_DATA_REFETCH_MS } from "@/lib/live-refresh";
 
@@ -14,6 +14,7 @@ export type AdminAccountsResponse = {
     createdAt: string;
     updatedAt?: string;
     registrationCount: number;
+    registrationId?: string | null;
     schoolName: string;
     schoolCode: string;
     city: string;
@@ -28,6 +29,7 @@ export type AdminAccountsResponse = {
     isoCount: number;
     ieoCount: number;
     olympiadTotal: number;
+    amountExpected?: number;
     olympiadYear: { label: string; code: string } | null;
     registration: unknown;
   }>;
@@ -35,6 +37,8 @@ export type AdminAccountsResponse = {
     imo: number;
     iso: number;
     ieo: number;
+    total?: number;
+    payment?: number;
     schools: number;
   };
   pagination: {
@@ -258,6 +262,95 @@ export async function fetchAdminStudents(params: {
     throw new Error(res.message || "Failed to load students");
   }
   return res.data;
+}
+
+export type AdminStudentUpdateInput = {
+  name: string;
+  grade: number;
+  section?: string;
+  mobile?: string;
+  imo: boolean;
+  iso: boolean;
+  ieo: boolean;
+};
+
+export type AdminStudentRow = AdminStudentsResponse["students"][number];
+
+export async function updateAdminStudent(
+  id: string,
+  body: AdminStudentUpdateInput,
+): Promise<AdminStudentRow> {
+  const res = await apiRequest<AdminStudentRow>(
+    `/admin/school-registrations/students/${id}`,
+    { method: "PUT", body },
+  );
+  if (!res.success || !res.data) {
+    throw new Error(res.message || "Failed to update student");
+  }
+  return res.data;
+}
+
+export type AdminStudentCreateInput = AdminStudentUpdateInput & {
+  schoolCode: string;
+};
+
+export async function createAdminStudent(
+  body: AdminStudentCreateInput,
+): Promise<AdminStudentRow> {
+  const res = await apiRequest<AdminStudentRow>(
+    `/admin/school-registrations/students`,
+    { method: "POST", body },
+  );
+  if (!res.success || !res.data) {
+    throw new Error(res.message || "Failed to add student");
+  }
+  return res.data;
+}
+
+export type AdminStudentImportResult = {
+  schoolCode: string;
+  schoolName: string;
+  added: number;
+  skipped: number;
+  skipNotes: string[];
+  parsed: number;
+  parseErrors: string[];
+  students: AdminStudentRow[];
+};
+
+export function adminStudentTemplateUrl() {
+  return `${getApiUrl()}/admin/school-registrations/step/2/template`;
+}
+
+export async function importAdminStudentsExcel(
+  schoolCode: string,
+  file: File,
+): Promise<AdminStudentImportResult> {
+  const apiUrl = getApiUrl();
+  if (!apiUrl) {
+    throw new Error("Server unreachable. The API address is not configured.");
+  }
+  const form = new FormData();
+  form.append("file", file);
+  form.append("schoolCode", schoolCode);
+
+  const response = await fetch(
+    `${apiUrl}/admin/school-registrations/students/import`,
+    {
+      method: "POST",
+      body: form,
+      credentials: "include",
+    },
+  );
+  const json = (await response.json()) as {
+    success?: boolean;
+    message?: string;
+    data?: AdminStudentImportResult;
+  };
+  if (!response.ok || !json.success || !json.data) {
+    throw new Error(json.message || "Failed to import students");
+  }
+  return json.data;
 }
 
 export const adminQueryKeys = {

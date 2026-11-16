@@ -3,11 +3,11 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { KeyRound, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ArrowLeft, KeyRound, Pencil, X } from "lucide-react";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/api";
-import { AdminBackButton } from "@/components/admin/admin-back-button";
+import { cn } from "@/lib/utils";
 import {
   SchoolAccountDetailsView,
   type SchoolAccountDetail,
@@ -89,21 +89,36 @@ export default function AdminSchoolDetailPage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <AdminBackButton href="/admin/schools" label="Back" />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            setPasswordOpen(true);
-            setPassword("");
-            setError("");
-            setMessage("");
-          }}
+        <Link
+          href="/admin/schools"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-brand"
         >
-          <KeyRound className="size-4" aria-hidden />
-          Set password
-        </Button>
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to schools
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/admin/schools/register?accountId=${encodeURIComponent(accountId)}`}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          >
+            <Pencil className="size-4" aria-hidden />
+            Edit
+          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setPasswordOpen(true);
+              setPassword("");
+              setError("");
+              setMessage("");
+            }}
+          >
+            <KeyRound className="size-4" aria-hidden />
+            Set password
+          </Button>
+        </div>
       </div>
 
       {message ? (

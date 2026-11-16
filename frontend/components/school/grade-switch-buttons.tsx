@@ -79,6 +79,18 @@ export function namedCountByGrade(
   return counts;
 }
 
+/** Lowest grade (3–10) that has at least one named student; defaults to 3. */
+export function firstFilledGrade(
+  students: Array<{ grade: number; name: string }>,
+): StudentGrade {
+  for (const grade of STUDENT_GRADES) {
+    if (students.some((s) => s.grade === grade && s.name.trim())) {
+      return grade;
+    }
+  }
+  return 3;
+}
+
 export function GradeSwitchButtons({
   activeGrade,
   onChange,

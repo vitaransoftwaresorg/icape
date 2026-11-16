@@ -209,6 +209,26 @@ export const adminCreateSchoolAccountSchema = z.object({
   password: z.string().min(6, "Password must be at least 6 characters"),
 });
 
+const concessionFeeField = z.preprocess(
+  (value) => {
+    if (value === "" || value === undefined || value === null) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const n = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(n) ? n : value;
+  },
+  z
+    .number()
+    .int("Enter a whole number")
+    .min(1, "Concession fee must be at least ₹1")
+    .max(150, "Concession fee cannot exceed ₹150")
+    .nullable()
+    .optional(),
+);
+
+export const adminConcessionSchema = z.object({
+  concessionFeePerStudent: concessionFeeField,
+});
+
 export const adminPaymentStepSchema = z
   .object({
     paymentMethod: z.preprocess(
@@ -218,21 +238,7 @@ export const adminPaymentStepSchema = z
     utr: z.string().trim().optional().default(""),
     proofUrl: z.string().url().optional(),
     proofPublicId: z.string().optional(),
-    concessionFeePerStudent: z.preprocess(
-      (value) => {
-        if (value === "" || value === undefined || value === null) return null;
-        if (typeof value === "string" && value.trim() === "") return null;
-        const n = typeof value === "number" ? value : Number(value);
-        return Number.isFinite(n) ? n : value;
-      },
-      z
-        .number()
-        .int("Enter a whole number")
-        .min(1, "Concession fee must be at least ₹1")
-        .max(150, "Concession fee cannot exceed ₹150")
-        .nullable()
-        .optional(),
-    ),
+    concessionFeePerStudent: concessionFeeField,
     /** When true, mark payment verified and registration approved */
     approve: z.boolean().optional().default(true),
     adminNote: z.string().trim().max(500).optional(),
@@ -277,6 +283,27 @@ export const adminStudentsQuerySchema = z.object({
   ),
   page: z.coerce.number().int().min(1).optional().default(1),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
+});
+
+/** Admin edit of an approved registration student — registration number is never writable. */
+export const adminUpdateStudentSchema = registrationStudentDraftSchema
+  .omit({ id: true, registrationNumber: true })
+  .refine((s) => s.imo || s.iso || s.ieo, {
+    message: "Select at least one olympiad (Maths / Science / English)",
+  });
+
+/** Admin add one student to an approved school (append-only). */
+export const adminAddStudentSchema = registrationStudentDraftSchema
+  .omit({ id: true, registrationNumber: true })
+  .extend({
+    schoolCode: z.string().trim().min(1, "School code is required"),
+  })
+  .refine((s) => s.imo || s.iso || s.ieo, {
+    message: "Select at least one olympiad (Maths / Science / English)",
+  });
+
+export const adminImportStudentsSchoolSchema = z.object({
+  schoolCode: z.string().trim().min(1, "School code is required"),
 });
 
 export const schoolStudentsQuerySchema = z.object({

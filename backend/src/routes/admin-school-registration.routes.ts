@@ -73,6 +73,10 @@ adminSchoolRegistrationRouter.put(
   "/accounts/:id/step/3",
   adminSchoolRegistrationController.saveAccountStep3,
 );
+adminSchoolRegistrationRouter.put(
+  "/accounts/:id/concession",
+  adminSchoolRegistrationController.updateAccountConcession,
+);
 adminSchoolRegistrationRouter.post(
   "/accounts/:id/password",
   adminSchoolRegistrationController.setPassword,
@@ -80,6 +84,23 @@ adminSchoolRegistrationRouter.post(
 adminSchoolRegistrationRouter.get(
   "/students",
   adminSchoolRegistrationController.listStudents,
+);
+adminSchoolRegistrationRouter.put(
+  "/students/:id",
+  adminSchoolRegistrationController.updateStudent,
+);
+adminSchoolRegistrationRouter.post(
+  "/students",
+  adminSchoolRegistrationController.addStudent,
+);
+adminSchoolRegistrationRouter.post(
+  "/students/import",
+  upload.single("file"),
+  adminSchoolRegistrationController.importAndAppendStudents,
+);
+adminSchoolRegistrationRouter.put(
+  "/students/:id",
+  adminSchoolRegistrationController.updateStudent,
 );
 adminSchoolRegistrationRouter.post(
   "/students/export-jobs",

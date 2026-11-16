@@ -5,10 +5,14 @@ import {
 } from "../middleware/auth.middleware";
 import {
   adminCreateSchoolAccountSchema,
+  adminConcessionSchema,
   adminPaymentStepSchema,
   adminRegistrationsQuerySchema,
   adminSetSchoolPasswordSchema,
   adminStudentsQuerySchema,
+  adminUpdateStudentSchema,
+  adminAddStudentSchema,
+  adminImportStudentsSchoolSchema,
   paymentStepSchema,
   paymentReferenceCheckSchema,
   registrationStudentSchema,
@@ -482,7 +486,9 @@ export const adminSchoolRegistrationController = {
     try {
       const accountId = String(req.params.id);
       const body = schoolDetailsSchema.parse(req.body);
-      const data = await schoolRegistrationService.saveStep1(accountId, body);
+      const data = await schoolRegistrationService.saveStep1(accountId, body, {
+        allowApproved: true,
+      });
       res.json({ success: true, message: "School details saved", data });
     } catch (err) {
       next(err);
@@ -520,6 +526,7 @@ export const adminSchoolRegistrationController = {
           draft: Boolean(body.draft),
           replaceAll: body.replaceAll !== false,
           finalize: body.finalize !== false,
+          allowApproved: true,
         },
       );
       res.json({
@@ -589,6 +596,20 @@ export const adminSchoolRegistrationController = {
     }
   },
 
+  async updateAccountConcession(req: Request, res: Response, next: NextFunction) {
+    try {
+      const accountId = String(req.params.id);
+      const body = adminConcessionSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminUpdateConcession(
+        accountId,
+        body.concessionFeePerStudent ?? null,
+      );
+      res.json({ success: true, message: "Concession fee updated", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async listStudents(req: Request, res: Response, next: NextFunction) {
     try {
       const query = adminStudentsQuerySchema.parse(req.query);
@@ -599,11 +620,58 @@ export const adminSchoolRegistrationController = {
     }
   },
 
+  async updateStudent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = adminUpdateStudentSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminUpdateStudent(
+        String(req.params.id),
+        body,
+      );
+      res.json({ success: true, message: "Student updated", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async addStudent(req: Request, res: Response, next: NextFunction) {
+    try {
+      const body = adminAddStudentSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminAddStudent(body);
+      res.status(201).json({ success: true, message: "Student added", data });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async importAndAppendStudents(req: Request, res: Response, next: NextFunction) {
+    try {
+      const file = req.file;
+      if (!file) throw new AppError("Excel file is required", 400);
+      const { schoolCode } = adminImportStudentsSchoolSchema.parse(req.body);
+      const data = await schoolRegistrationService.adminImportAndAppendStudents(
+        schoolCode,
+        file.buffer,
+      );
+      res.status(201).json({
+        success: true,
+        message: `Added ${data.added} student(s)${
+          data.skipped ? `, skipped ${data.skipped} existing` : ""
+        }`,
+        data,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async exportStudentsExcel(req: Request, res: Response, next: NextFunction) {
     try {
       const query = adminStudentsQuerySchema.parse(req.query);
       const students = await schoolRegistrationService.adminExportStudents(query);
-      const filename = exportFilename("i-cape-students", "xlsx", query);
+      const filename = exportFilename("i-cape-students", "xlsx", {
+        ...query,
+        schoolName: students[0]?.schoolName,
+      });
       await writeStudentListExcel(res, students, filename);
     } catch (err) {
       next(err);
@@ -630,7 +698,10 @@ export const adminSchoolRegistrationController = {
     try {
       const query = adminStudentsQuerySchema.parse(req.query);
       const students = await schoolRegistrationService.adminExportStudents(query);
-      const filename = exportFilename("i-cape-students", "pdf", query);
+      const filename = exportFilename("i-cape-students", "pdf", {
+        ...query,
+        schoolName: students[0]?.schoolName,
+      });
       writeStudentListPdf(res, students, filename, {
         olympiad: query.olympiad,
         grade: query.grade,
