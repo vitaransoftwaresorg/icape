@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { cn } from "@/lib/utils";
 
 /** Remounts children on grade change with a short swap animation. */
@@ -8,10 +8,12 @@ export function GradeTableFrame({
   grade,
   children,
   className,
+  scrollRef,
 }: {
   grade: number;
   children: ReactNode;
   className?: string;
+  scrollRef?: Ref<HTMLDivElement>;
 }) {
   return (
     <div className="space-y-2">
@@ -23,6 +25,7 @@ export function GradeTableFrame({
       </p>
       <div
         key={grade}
+        ref={scrollRef}
         className={cn(
           "overflow-x-auto rounded-xl border border-border animate-[gradeTableIn_0.32s_ease-out]",
           className,

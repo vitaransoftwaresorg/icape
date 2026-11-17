@@ -226,6 +226,9 @@ function serializePayment(payment: {
   };
 }
 
+/** Keep Excel / entry order for registration edit (matches staggered createdAt). */
+const studentsEditOrderBy = [{ createdAt: "desc" as const }];
+
 async function loadRegistration(accountId: string, olympiadYear: string) {
   return prisma.schoolRegistration.findUnique({
     where: {
@@ -235,7 +238,7 @@ async function loadRegistration(accountId: string, olympiadYear: string) {
       },
     },
     include: {
-      students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
+      students: { orderBy: studentsEditOrderBy },
       payment: true,
     },
   });
@@ -337,7 +340,7 @@ export const schoolRegistrationService = {
         where: { id: reg.id },
         data: { schoolCode },
         include: {
-          students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
+          students: { orderBy: studentsEditOrderBy },
           payment: true,
         },
       });
@@ -362,7 +365,7 @@ export const schoolRegistrationService = {
         where: { id: reg.id },
         data: { schoolCode },
         include: {
-          students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
+          students: { orderBy: studentsEditOrderBy },
           payment: true,
         },
       });
@@ -449,7 +452,7 @@ export const schoolRegistrationService = {
         status: statusAfterAdminEdit(reg.status),
       },
       include: {
-        students: { orderBy: [{ grade: "asc" }, { name: "asc" }] },
+        students: { orderBy: studentsEditOrderBy },
         payment: true,
       },
     });
@@ -599,21 +602,27 @@ export const schoolRegistrationService = {
       });
     }
 
+    // Stagger createdAt so payload order is preserved under createdAt DESC.
+    const batchBaseMs = Date.now();
     const CREATE_CHUNK = 250;
     for (let i = 0; i < withNumbers.length; i += CREATE_CHUNK) {
       const chunk = withNumbers.slice(i, i + CREATE_CHUNK);
       await prisma.registrationStudent.createMany({
-        data: chunk.map((s) => ({
-          schoolRegistrationId: reg.id,
-          registrationNumber: s.registrationNumber,
-          name: s.name,
-          grade: s.grade,
-          section: s.section,
-          mobile: s.mobile,
-          imo: s.imo,
-          iso: s.iso,
-          ieo: s.ieo,
-        })),
+        data: chunk.map((s, chunkIdx) => {
+          const index = i + chunkIdx;
+          return {
+            schoolRegistrationId: reg.id,
+            registrationNumber: s.registrationNumber,
+            name: s.name,
+            grade: s.grade,
+            section: s.section,
+            mobile: s.mobile,
+            imo: s.imo,
+            iso: s.iso,
+            ieo: s.ieo,
+            createdAt: new Date(batchBaseMs + (withNumbers.length - index)),
+          };
+        }),
         skipDuplicates: true,
       });
     }

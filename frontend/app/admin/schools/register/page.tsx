@@ -2,7 +2,16 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import {
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -15,6 +24,7 @@ import {
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { AdminSearchField } from "@/components/admin/admin-search-field";
 import { apiRequest, getApiUrl, type ApiResponse } from "@/lib/api";
 import { reportFromHttpStatus, reportServerUnreachable } from "@/lib/server-status";
 import { saveStudentsChunked, type RegistrationStudent, MAX_STUDENTS_PER_REGISTRATION } from "@/lib/school-api";
@@ -22,7 +32,6 @@ import { computeRegistrationFee, FEE_PER_STUDENT_PER_OLYMPIAD, type PaymentMetho
 import { toTitleCaseInput } from "@/lib/title-case";
 import { cn } from "@/lib/utils";
 import { PaymentFeeSummary } from "@/components/school/payment-fee-summary";
-import { AdminBackButton } from "@/components/admin/admin-back-button";
 import { GradeTableFrame } from "@/components/school/grade-table-frame";
 import {
   ensureStudentsForGrade,
@@ -466,10 +475,12 @@ function normalizeStudent(s: {
   imo?: boolean;
   iso?: boolean;
   ieo?: boolean;
+  clientKey?: string;
 }): StudentRow {
   return {
     id: s.id,
-    clientKey: s.id ? undefined : nextStudentKey(),
+    // Always keep a stable client key so draft id swaps don't remount rows / jump scroll.
+    clientKey: s.clientKey || nextStudentKey(),
     registrationNumber: s.registrationNumber,
     name: s.name || "",
     grade: s.grade,
@@ -527,6 +538,7 @@ function mergeStudentCodes(
     }
     return {
       ...row,
+      clientKey: row.clientKey || nextStudentKey(),
       id: matched.id,
       registrationNumber: matched.registrationNumber,
     };
@@ -625,6 +637,7 @@ function AdminRegisterSchoolPageInner() {
   const [schoolCode, setSchoolCode] = useState("");
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [activeGrade, setActiveGrade] = useState<StudentGrade>(3);
+  const [studentSearch, setStudentSearch] = useState("");
   const [studentRowErrors, setStudentRowErrors] = useState<Record<number, string>>(
     {},
   );
@@ -662,6 +675,10 @@ function AdminRegisterSchoolPageInner() {
   const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastDraftPayloadRef = useRef("");
   const skipNextDraftRef = useRef(false);
+  const draftScrollLockRef = useRef<{ windowY: number; tableY: number } | null>(
+    null,
+  );
+  const studentsTableScrollRef = useRef<HTMLDivElement | null>(null);
   const isApprovedEdit = registrationStatus === "APPROVED";
 
   useEffect(() => {
@@ -910,7 +927,7 @@ function AdminRegisterSchoolPageInner() {
       ? ensureStudentsForGrade(
           named.map((s) => ({
             ...s,
-            clientKey: s.id ? undefined : nextStudentKey(),
+            clientKey: nextStudentKey(),
           })),
           openGrade,
           emptyStudent,
@@ -1038,10 +1055,21 @@ function AdminRegisterSchoolPageInner() {
     return () => document.removeEventListener("click", onDocumentClick, true);
   }, [hasUnsavedChanges]);
 
-  const gradeIndices = useMemo(
-    () => gradeStudentIndices(students, activeGrade),
-    [students, activeGrade],
-  );
+  const gradeIndices = useMemo(() => {
+    const indices = gradeStudentIndices(students, activeGrade);
+    const q = studentSearch.trim().toLowerCase();
+    if (!q) return indices;
+    return indices.filter((i) => {
+      const s = students[i];
+      if (!s) return false;
+      return (
+        (s.registrationNumber || "").toLowerCase().includes(q) ||
+        s.name.toLowerCase().includes(q) ||
+        (s.section || "").toLowerCase().includes(q) ||
+        (s.mobile || "").includes(q)
+      );
+    });
+  }, [students, activeGrade, studentSearch]);
   const gradeCounts = useMemo(() => namedCountByGrade(students), [students]);
 
   const draftStudents = useMemo(() => {
@@ -1096,35 +1124,16 @@ function AdminRegisterSchoolPageInner() {
         setDraftStatus("error");
         return;
       }
+      // Do not call setStudents here. Draft responses recreate DB ids; merging
+      // them remounts checkbox rows and the browser jumps scroll to the top.
       lastDraftPayloadRef.current = payload;
-      setDraftStatus("saved");
-      const saved = res.data;
-      if (!saved) return;
-      setCompletedThrough((prev) => Math.max(prev, 3));
-      setSchoolCode(saved.schoolCode || schoolCode);
       skipNextDraftRef.current = true;
-      setStudents((prev) => {
-        const merged = mergeStudentCodes(prev, saved.students);
-        return ensureStudentsForGrade(
-          merged,
-          activeGrade,
-          emptyStudent,
-          INITIAL_STUDENT_ROWS,
-        );
-      });
-      lastDraftPayloadRef.current = JSON.stringify(
-        saved.students.map((s) => ({
-          id: s.id,
-          registrationNumber: s.registrationNumber,
-          name: (s.name || "").trim().toUpperCase(),
-          grade: s.grade,
-          section: (s.section || "").trim().toUpperCase(),
-          mobile: sanitizeMobileDigits(s.mobile),
-          imo: Boolean(s.imo),
-          iso: Boolean(s.iso),
-          ieo: Boolean(s.ieo),
-        })),
-      );
+      setDraftStatus("saved");
+      setCompletedThrough((prev) => Math.max(prev, 3));
+      const savedCode = res.data?.schoolCode;
+      if (savedCode && savedCode !== schoolCode) {
+        setSchoolCode(savedCode);
+      }
     };
 
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
@@ -1157,6 +1166,16 @@ function AdminRegisterSchoolPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftStudents, step, accountId, completedThrough]);
 
+  useLayoutEffect(() => {
+    const lock = draftScrollLockRef.current;
+    if (!lock) return;
+    draftScrollLockRef.current = null;
+    window.scrollTo(0, lock.windowY);
+    if (studentsTableScrollRef.current) {
+      studentsTableScrollRef.current.scrollTop = lock.tableY;
+    }
+  });
+
   function removeStudentAt(absoluteIndex: number) {
     const next = ensureStudentsForGrade(
       students.filter((_, i) => i !== absoluteIndex),
@@ -1181,6 +1200,7 @@ function AdminRegisterSchoolPageInner() {
   function switchGrade(grade: StudentGrade) {
     if (grade === activeGrade) return;
     setStudentRowErrors({});
+    setStudentSearch("");
     setStudents((prev) =>
       ensureStudentsForGrade(
         prev,
@@ -1356,22 +1376,15 @@ function AdminRegisterSchoolPageInner() {
       return false;
     }
     lastDraftPayloadRef.current = JSON.stringify(studentPayload);
-    const nextStudents: StudentRow[] = res.data.students.map((s) => ({
-      id: s.id,
-      registrationNumber: s.registrationNumber,
-      name: s.name,
-      grade: s.grade,
-      section: s.section || "",
-      mobile: s.mobile || "",
-      imo: Boolean(s.imo),
-      iso: Boolean(s.iso),
-      ieo: Boolean(s.ieo),
-    }));
+    const nextStudents: StudentRow[] = mergeStudentCodes(
+      students,
+      res.data.students,
+    ).filter((s) => s.name.trim());
     const openGrade = firstFilledGrade(nextStudents);
     setActiveGrade(openGrade);
     setStudents(
       ensureStudentsForGrade(
-        nextStudents,
+        nextStudents.length ? nextStudents : res.data.students.map((s) => normalizeStudent(s)),
         openGrade,
         emptyStudent,
         INITIAL_STUDENT_ROWS,
@@ -1712,12 +1725,6 @@ function AdminRegisterSchoolPageInner() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/admin/schools"
-            className={buttonVariants({ variant: "accent" })}
-          >
-            Back
-          </Link>
-          <Link
             href="/admin/students"
             className={buttonVariants({ variant: "outline" })}
           >
@@ -1743,12 +1750,6 @@ function AdminRegisterSchoolPageInner() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          {accountId ? (
-            <AdminBackButton
-              className="mb-2"
-              onClick={() => exitToRegisterHome()}
-            />
-          ) : null}
           <h1 className="text-2xl font-bold text-brand">
             {isApprovedEdit
               ? "Edit school"
@@ -2292,23 +2293,29 @@ function AdminRegisterSchoolPageInner() {
                 Enter each student — draft saves automatically.
               </p>
             </div>
-            <p
-              className={cn(
-                "min-h-5 text-sm font-semibold",
-                draftStatus === "saving" && "text-muted",
-                draftStatus === "saved" && "text-green-700",
-                draftStatus === "error" && "text-red-600",
-              )}
-              aria-live="polite"
-            >
-              {draftStatus === "saving"
-                ? "Saving draft…"
-                : draftStatus === "saved"
-                  ? `Draft saved · ${draftStudents.length} student${draftStudents.length === 1 ? "" : "s"}`
-                  : draftStatus === "error"
-                    ? "Draft save failed"
-                    : null}
-            </p>
+            <div className="flex w-full flex-col items-stretch gap-2 sm:max-w-md sm:items-end">
+              <AdminSearchField
+                value={studentSearch}
+                onChange={setStudentSearch}
+                placeholder="Search reg no, name, section, mobile…"
+              />
+              <p
+                className={cn(
+                  "min-h-5 text-sm font-semibold sm:text-right",
+                  draftStatus === "saving" && "text-muted",
+                  draftStatus === "saved" && "text-green-700",
+                  draftStatus === "error" && "text-red-600",
+                )}
+              >
+                {draftStatus === "saving"
+                  ? "Saving draft…"
+                  : draftStatus === "saved"
+                    ? `Draft saved · ${draftStudents.length} student${draftStudents.length === 1 ? "" : "s"}`
+                    : draftStatus === "error"
+                      ? "Draft save failed"
+                      : null}
+              </p>
+            </div>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -2343,7 +2350,6 @@ function AdminRegisterSchoolPageInner() {
                     importStatus === "done" && "text-green-700",
                     importStatus === "error" && "text-red-600",
                   )}
-                  aria-live="polite"
                 >
                   {importStatus === "importing"
                     ? `Reading ${importFileName}…`
@@ -2362,7 +2368,7 @@ function AdminRegisterSchoolPageInner() {
             />
           </div>
 
-          <GradeTableFrame grade={activeGrade}>
+          <GradeTableFrame grade={activeGrade} scrollRef={studentsTableScrollRef}>
             <table className="w-full min-w-[920px] border-collapse text-sm">
               <thead className="bg-brand-stats text-white">
                 <tr>
@@ -2389,6 +2395,18 @@ function AdminRegisterSchoolPageInner() {
                 </tr>
               </thead>
               <tbody>
+                {gradeIndices.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={10}
+                      className="px-4 py-8 text-center text-sm text-muted"
+                    >
+                      {studentSearch.trim()
+                        ? "No students match this search in this grade."
+                        : "No students in this grade yet."}
+                    </td>
+                  </tr>
+                ) : null}
                 {gradeIndices.map((absoluteIndex, displayIndex) => {
                   const student = students[absoluteIndex];
                   if (!student) return null;
@@ -2397,7 +2415,7 @@ function AdminRegisterSchoolPageInner() {
                     rowError === "Select at least one olympiad";
                   return (
                     <tr
-                      key={student.id || student.clientKey || `row-${absoluteIndex}`}
+                      key={student.clientKey || `row-${absoluteIndex}`}
                       className={cn(
                         "border-t bg-white",
                         rowError
