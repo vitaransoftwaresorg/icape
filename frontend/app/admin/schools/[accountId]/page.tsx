@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, KeyRound, Pencil, X } from "lucide-react";
+import { KeyRound, Pencil, X } from "lucide-react";
+import { AdminBackButton } from "@/components/admin/admin-back-button";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiRequest } from "@/lib/api";
@@ -89,13 +91,7 @@ export default function AdminSchoolDetailPage() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link
-          href="/admin/schools"
-          className="inline-flex items-center gap-1 text-sm font-semibold text-muted hover:text-brand"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          Back to schools
-        </Link>
+        <AdminBackButton href="/admin/schools" label="Back to schools" />
         <div className="flex flex-wrap items-center gap-2">
           <Link
             href={`/admin/schools/register?accountId=${encodeURIComponent(accountId)}`}
