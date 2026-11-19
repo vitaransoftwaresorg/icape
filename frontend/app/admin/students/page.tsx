@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Pencil,
   Plus,
+  Printer,
   Upload,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import { AdminSearchField } from "@/components/admin/admin-search-field";
 import { RESULT_GRADES, RESULT_OLYMPIADS } from "@/lib/results";
 import { useAdminStudentExport } from "@/providers/admin-export-provider";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type StudentRow = {
@@ -190,6 +192,8 @@ function AdminStudentsPageInner() {
   const [saveBusy, setSaveBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveMessage, setSaveMessage] = useState("");
+  const [printBusy, setPrintBusy] = useState(false);
+  const [printError, setPrintError] = useState("");
   const debouncedQ = useDebouncedValue(q, 300);
   const appliedQ = debouncedQ.trim();
 
@@ -240,6 +244,7 @@ function AdminStudentsPageInner() {
   const serialOffset = (page - 1) * PAGE_SIZE;
   const showInitialLoading = studentsQuery.isPending && !studentsQuery.data;
   const error =
+    printError ||
     exportError ||
     (studentsQuery.isError
       ? studentsQuery.error instanceof Error
@@ -267,6 +272,40 @@ function AdminStudentsPageInner() {
       grade: applied.grade ? Number(applied.grade) : undefined,
       format,
     });
+  }
+
+  async function openPrintPreview() {
+    clearExportError();
+    setPrintError("");
+    setPrintBusy(true);
+    const params = new URLSearchParams({ status: "APPROVED" });
+    if (applied.q?.trim()) params.set("q", applied.q.trim());
+    if (applied.schoolCode) params.set("schoolCode", applied.schoolCode);
+    if (applied.olympiad) params.set("olympiad", applied.olympiad);
+    if (applied.grade) params.set("grade", applied.grade);
+    try {
+      const res = await fetch(
+        `${getApiUrl()}/admin/school-registrations/students/export.print?${params}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        setPrintError("Could not open print preview");
+        return;
+      }
+      const html = await res.text();
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) {
+        setPrintError("Allow pop-ups to open the print preview");
+        return;
+      }
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+    } catch {
+      setPrintError("Could not open print preview");
+    } finally {
+      setPrintBusy(false);
+    }
   }
 
   function openEdit(row: StudentRow) {
@@ -463,12 +502,14 @@ function AdminStudentsPageInner() {
   const heading = useMemo(() => buildStudentsHeading(applied), [applied]);
   const loading = studentsQuery.isFetching;
   const totals = studentsQuery.data?.totals || {
-    schools: 0,
+    students: 0,
     imo: 0,
     ieo: 0,
     iso: 0,
     total: 0,
   };
+  const studentsTotal =
+    totals.students ?? studentsQuery.data?.pagination.total ?? 0;
 
   return (
     <div className="space-y-5">
@@ -478,12 +519,12 @@ function AdminStudentsPageInner() {
           <p className="text-muted">{heading.subtitle}</p>
         </div>
         <div
-          aria-label="Schools and olympiad entry totals"
+          aria-label="Student and olympiad entry totals"
           className="flex shrink-0 items-stretch overflow-hidden rounded-lg border border-border bg-white"
         >
           {(
             [
-              { code: "Schools", count: totals.schools },
+              { code: "Students", count: studentsTotal },
               { code: "IMO", count: totals.imo },
               { code: "IEO", count: totals.ieo },
               { code: "ISO", count: totals.iso },
@@ -573,6 +614,16 @@ function AdminStudentsPageInner() {
         <Button type="button" size="sm" variant="outline" onClick={openUpload}>
           <Upload className="size-4" aria-hidden />
           Upload Excel
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={printBusy || exportBusy}
+          onClick={() => void openPrintPreview()}
+        >
+          <Printer className="size-4" aria-hidden />
+          {printBusy ? "Opening print…" : "Print students"}
         </Button>
         <Button
           type="button"

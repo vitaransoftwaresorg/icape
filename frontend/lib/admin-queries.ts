@@ -38,6 +38,7 @@ export type AdminAccountsResponse = {
     iso: number;
     ieo: number;
     total?: number;
+    students?: number;
     payment?: number;
     schools: number;
   };
@@ -223,7 +224,8 @@ export type AdminStudentsResponse = {
     schools: Array<{ schoolCode: string; schoolName: string }>;
   };
   totals?: {
-    schools: number;
+    students?: number;
+    schools?: number;
     imo: number;
     ieo: number;
     iso: number;

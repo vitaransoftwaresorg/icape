@@ -634,6 +634,7 @@ export const schoolAuthService = {
       iso: 0,
       ieo: 0,
       total: 0,
+      students: 0,
       payment: 0,
       schools: total,
     };
@@ -646,6 +647,7 @@ export const schoolAuthService = {
       const feeRows = await prisma.schoolRegistration.findMany({
         where: registrationFilter,
         select: {
+          studentCount: true,
           imoCount: true,
           isoCount: true,
           ieoCount: true,
@@ -655,8 +657,10 @@ export const schoolAuthService = {
       let imoTotal = 0;
       let isoTotal = 0;
       let ieoTotal = 0;
+      let studentsTotal = 0;
       let paymentTotal = 0;
       for (const r of feeRows) {
+        studentsTotal += r.studentCount || 0;
         imoTotal += r.imoCount;
         isoTotal += r.isoCount;
         ieoTotal += r.ieoCount;
@@ -672,6 +676,7 @@ export const schoolAuthService = {
         iso: isoTotal,
         ieo: ieoTotal,
         total: imoTotal + isoTotal + ieoTotal,
+        students: studentsTotal,
         payment: paymentTotal,
         schools: total,
       };
