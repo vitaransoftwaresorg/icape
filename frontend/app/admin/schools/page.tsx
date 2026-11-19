@@ -107,11 +107,15 @@ export default function AdminSchoolsPage() {
     iso: 0,
     ieo: 0,
     total: 0,
+    students: 0,
     payment: 0,
     schools: total,
   };
   const olympiadEntriesTotal =
     totals.total ?? totals.imo + totals.iso + totals.ieo;
+  const studentsTotal =
+    totals.students ??
+    rows.reduce((sum, row) => sum + (row.studentCount || 0), 0);
   const showInitialLoading = schoolsQuery.isPending && !schoolsQuery.data;
 
   async function setSchoolPassword() {
@@ -166,7 +170,8 @@ export default function AdminSchoolsPage() {
               { code: "IMO", count: totals.imo },
               { code: "IEO", count: totals.ieo },
               { code: "ISO", count: totals.iso },
-              { code: "Total", count: olympiadEntriesTotal },
+              { code: "Entries", count: olympiadEntriesTotal },
+              { code: "Students", count: studentsTotal },
             ] as const
           ).map((item, index) => (
             <div
@@ -312,12 +317,15 @@ export default function AdminSchoolsPage() {
                     {row.schoolCode ? (
                       <Link
                         href={`/admin/students?schoolCode=${encodeURIComponent(row.schoolCode)}`}
-                        className="text-sm font-semibold text-brand underline underline-offset-2 hover:text-brand-hover"
+                        className="text-sm font-bold tabular-nums text-brand underline underline-offset-2 hover:text-brand-hover"
+                        title="View students for this school"
                       >
-                        Students
+                        {row.studentCount}
                       </Link>
                     ) : (
-                      <span className="text-sm text-muted">—</span>
+                      <span className="text-sm font-semibold tabular-nums text-muted">
+                        {row.studentCount || 0}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-3 text-center align-middle">

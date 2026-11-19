@@ -1233,8 +1233,17 @@ export const schoolRegistrationService = {
   }) {
     const studentWhere = this.buildAdminStudentWhere(input);
 
-    const [total, rows, schoolRows, olympiadSums] = await Promise.all([
+    const [total, imo, iso, ieo, rows, schoolRows] = await Promise.all([
       prisma.registrationStudent.count({ where: studentWhere }),
+      prisma.registrationStudent.count({
+        where: { ...studentWhere, imo: true },
+      }),
+      prisma.registrationStudent.count({
+        where: { ...studentWhere, iso: true },
+      }),
+      prisma.registrationStudent.count({
+        where: { ...studentWhere, ieo: true },
+      }),
       prisma.registrationStudent.findMany({
         where: studentWhere,
         orderBy: [
@@ -1271,24 +1280,9 @@ export const schoolRegistrationService = {
           schoolName: true,
         },
       }),
-      prisma.schoolRegistration.aggregate({
-        where: {
-          status: RegistrationStatus.APPROVED,
-          olympiadYear: CURRENT_OLYMPIAD_YEAR,
-        },
-        _sum: {
-          imoCount: true,
-          isoCount: true,
-          ieoCount: true,
-        },
-        _count: { _all: true },
-      }),
     ]);
 
     const students = rows.map((s) => this.mapAdminStudentRow(s));
-    const imo = olympiadSums._sum.imoCount ?? 0;
-    const iso = olympiadSums._sum.isoCount ?? 0;
-    const ieo = olympiadSums._sum.ieoCount ?? 0;
 
     return {
       students,
@@ -1300,7 +1294,7 @@ export const schoolRegistrationService = {
         years: listOlympiadYears(),
       },
       totals: {
-        schools: olympiadSums._count._all,
+        students: total,
         imo,
         ieo,
         iso,
