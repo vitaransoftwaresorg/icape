@@ -27,6 +27,7 @@ import { studentExportService } from "../services/student-export.service";
 import { RegistrationStatus } from "@prisma/client";
 import { AppError } from "../middleware/error.middleware";
 import {
+  buildStudentListPdfBuffer,
   buildStudentListPrintHtml,
   exportFilename,
   writeStudentListExcel,
@@ -40,6 +41,20 @@ import {
   buildIncompleteRegistrationsPrintHtml,
   writeIncompleteRegistrationsPdf,
 } from "../lib/incomplete-registration-documents";
+import { writeApprovedSchoolsPdf } from "../lib/schools-list-documents";
+import JSZip from "jszip";
+
+function zipSafeFolderName(label: string, schoolCode?: string) {
+  const cleaned = label
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .slice(0, 90);
+  if (cleaned) return cleaned;
+  const code = schoolCode?.trim().replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "");
+  return code || "School Students";
+}
 
 export const schoolRegistrationController = {
   async paymentInfo(_req: Request, res: Response, next: NextFunction) {
@@ -396,6 +411,20 @@ export const adminSchoolRegistrationController = {
     }
   },
 
+  async exportApprovedAccountsPdf(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const rows = await schoolAuthService.exportApprovedAccounts({ q });
+      writeApprovedSchoolsPdf(res, rows, q.trim() || undefined);
+    } catch (err) {
+      next(err);
+    }
+  },
+
   async exportIncompleteAccountsPdf(
     req: Request,
     res: Response,
@@ -706,6 +735,75 @@ export const adminSchoolRegistrationController = {
         olympiad: query.olympiad,
         grade: query.grade,
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+
+  async exportStudentsPdfZip(req: Request, res: Response, next: NextFunction) {
+    try {
+      const query = adminStudentsQuerySchema.parse(req.query);
+      const schools =
+        await schoolRegistrationService.adminListSchoolsForStudentExport(query);
+      if (schools.length === 0) {
+        throw new AppError("No students found for the selected filters", 404);
+      }
+
+      const zip = new JSZip();
+      const filters = {
+        olympiad: query.olympiad,
+        grade: query.grade,
+      };
+      const usedFolders = new Set<string>();
+
+      for (const school of schools) {
+        const students = await schoolRegistrationService.adminExportStudents({
+          ...query,
+          schoolCode: school.schoolCode,
+        });
+        if (students.length === 0) continue;
+
+        const buffer = await buildStudentListPdfBuffer(students, filters);
+        let folder = zipSafeFolderName(
+          `${school.schoolName} Students`,
+          school.schoolCode,
+        );
+        if (usedFolders.has(folder)) {
+          let i = 2;
+          while (usedFolders.has(`${folder}-${i}`)) i += 1;
+          folder = `${folder}-${i}`;
+        }
+        usedFolders.add(folder);
+
+        const pdfName = exportFilename("students", "pdf", {
+          schoolName: school.schoolName,
+          schoolCode: school.schoolCode,
+          olympiad: query.olympiad,
+          grade: query.grade,
+        });
+        zip.file(`${folder}/${pdfName}`, buffer);
+      }
+
+      if (usedFolders.size === 0) {
+        throw new AppError("No students found for the selected filters", 404);
+      }
+
+      const zipBuffer = await zip.generateAsync({
+        type: "nodebuffer",
+        compression: "DEFLATE",
+      });
+      const zipName = exportFilename("i-cape-students-by-school", "zip", {
+        olympiad: query.olympiad,
+        grade: query.grade,
+        olympiadYear: query.olympiadYear,
+      });
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${zipName}"`,
+      );
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).send(zipBuffer);
     } catch (err) {
       next(err);
     }

@@ -33,6 +33,10 @@ adminSchoolRegistrationRouter.get(
   adminSchoolRegistrationController.listAccounts,
 );
 adminSchoolRegistrationRouter.get(
+  "/accounts/export.approved.pdf",
+  adminSchoolRegistrationController.exportApprovedAccountsPdf,
+);
+adminSchoolRegistrationRouter.get(
   "/accounts/export.incomplete.pdf",
   adminSchoolRegistrationController.exportIncompleteAccountsPdf,
 );
@@ -125,6 +129,10 @@ adminSchoolRegistrationRouter.get(
 adminSchoolRegistrationRouter.get(
   "/students/export.pdf",
   adminSchoolRegistrationController.exportStudentsPdf,
+);
+adminSchoolRegistrationRouter.get(
+  "/students/export.pdf.zip",
+  adminSchoolRegistrationController.exportStudentsPdfZip,
 );
 adminSchoolRegistrationRouter.get(
   "/students/export.print",

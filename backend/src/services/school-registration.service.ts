@@ -1730,6 +1730,29 @@ export const schoolRegistrationService = {
     };
   },
 
+  async adminListSchoolsForStudentExport(input: {
+    q?: string;
+    schoolCode?: string;
+    grade?: number;
+    olympiad?: "IMO" | "ISO" | "IEO";
+    olympiadYear?: string;
+    status?: RegistrationStatus;
+  }) {
+    const studentWhere = this.buildAdminStudentWhere(input);
+    const grouped = await prisma.registrationStudent.groupBy({
+      by: ["schoolRegistrationId"],
+      where: studentWhere,
+    });
+    if (grouped.length === 0) return [];
+
+    const schools = await prisma.schoolRegistration.findMany({
+      where: { id: { in: grouped.map((g) => g.schoolRegistrationId) } },
+      select: { schoolCode: true, schoolName: true },
+      orderBy: { schoolName: "asc" },
+    });
+    return schools;
+  },
+
   async adminExportStudents(
     input: {
       q?: string;

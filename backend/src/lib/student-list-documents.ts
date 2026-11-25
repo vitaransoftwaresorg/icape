@@ -1,4 +1,6 @@
 import { createWriteStream, existsSync, readFileSync } from "fs";
+import { mkdtemp, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
 import path from "path";
 import PDFDocument from "pdfkit";
 import ExcelJS from "exceljs";
@@ -850,6 +852,32 @@ export function createStudentListPdfFileWriter(
       });
     },
   };
+}
+
+/** Build one branded student-list PDF in memory (one or more schools). */
+export async function buildStudentListPdfBuffer(
+  students: StudentListExportRow[],
+  filters?: StudentListFilterMeta,
+): Promise<Buffer> {
+  const dir = await mkdtemp(path.join(tmpdir(), "icape-pdf-"));
+  const filePath = path.join(dir, "students.pdf");
+  try {
+    const pdf = createStudentListPdfFileWriter(filePath, filters);
+    const groups = groupStudentsBySchool(students);
+    for (const group of groups) {
+      pdf.beginSchool({
+        schoolCode: group.schoolCode,
+        schoolName: group.schoolName,
+      });
+      for (const row of group.students) {
+        pdf.addStudent(row);
+      }
+    }
+    await pdf.end();
+    return await readFile(filePath);
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function writeStudentListExcel(

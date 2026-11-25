@@ -694,6 +694,43 @@ export const schoolAuthService = {
     };
   },
 
+  async exportApprovedAccounts(params?: { q?: string }) {
+    const data = await this.listAccounts({
+      page: 1,
+      limit: 100,
+      q: params?.q,
+      approved: true,
+    });
+
+    const all = [...data.accounts];
+    const totalPages = data.pagination.totalPages;
+    for (let page = 2; page <= totalPages; page += 1) {
+      const next = await this.listAccounts({
+        page,
+        limit: 100,
+        q: params?.q,
+        approved: true,
+      });
+      all.push(...next.accounts);
+    }
+
+    return all.map((row) => ({
+      schoolName: row.schoolName || row.name || "Unnamed school",
+      schoolCode: row.schoolCode || "",
+      contactName: row.contactName || "",
+      phone: row.phone || "",
+      city: row.city || "",
+      state: row.state || "",
+      status: row.status || "APPROVED",
+      studentCount: row.studentCount || 0,
+      imoCount: row.imoCount || 0,
+      ieoCount: row.ieoCount || 0,
+      isoCount: row.isoCount || 0,
+      olympiadTotal: row.olympiadTotal || 0,
+      amountExpected: Number(row.amountExpected || 0),
+    }));
+  },
+
   async exportIncompleteAccounts(params?: { q?: string }) {
     const data = await this.listAccounts({
       page: 1,
