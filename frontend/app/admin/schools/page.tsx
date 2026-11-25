@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   KeyRound,
   Pencil,
   X,
@@ -15,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { AdminTableShell, AdminTableSkeletonRows } from "@/components/admin/admin-table-shell";
 import { AdminSearchField } from "@/components/admin/admin-search-field";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, getApiUrl } from "@/lib/api";
 import {
   adminQueryKeys,
   ADMIN_LIST_REFETCH_MS,
@@ -80,6 +81,7 @@ export default function AdminSchoolsPage() {
   const [passwordId, setPasswordId] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -142,6 +144,36 @@ export default function AdminSchoolsPage() {
     setMessage(res.message || "Password updated");
     setPassword("");
     setPasswordId(null);
+  }
+
+  async function downloadSchoolsPdf() {
+    setExportingPdf(true);
+    setError("");
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      const res = await fetch(
+        `${getApiUrl()}/admin/school-registrations/accounts/export.approved.pdf?${params}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        setError("Could not download schools PDF");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "i-cape-approved-schools.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setError("Could not download schools PDF");
+    } finally {
+      setExportingPdf(false);
+    }
   }
 
   const queryError =
@@ -209,12 +241,24 @@ export default function AdminSchoolsPage() {
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-white p-3">
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-white p-3 sm:flex-row sm:items-center">
         <AdminSearchField
           value={searchInput}
           onChange={setSearchInput}
           placeholder="School name, code, email, city…"
+          className="flex-1"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={exportingPdf || showInitialLoading}
+          onClick={() => void downloadSchoolsPdf()}
+        >
+          <Download className="size-4" aria-hidden />
+          {exportingPdf ? "Preparing PDF…" : "Download schools PDF"}
+        </Button>
       </div>
 
       {queryError ? (

@@ -194,6 +194,7 @@ function AdminStudentsPageInner() {
   const [saveMessage, setSaveMessage] = useState("");
   const [printBusy, setPrintBusy] = useState(false);
   const [printError, setPrintError] = useState("");
+  const [zipBusy, setZipBusy] = useState(false);
   const debouncedQ = useDebouncedValue(q, 300);
   const appliedQ = debouncedQ.trim();
 
@@ -274,18 +275,22 @@ function AdminStudentsPageInner() {
     });
   }
 
-  async function openPrintPreview() {
-    clearExportError();
-    setPrintError("");
-    setPrintBusy(true);
+  function studentsExportParams() {
     const params = new URLSearchParams({ status: "APPROVED" });
     if (applied.q?.trim()) params.set("q", applied.q.trim());
     if (applied.schoolCode) params.set("schoolCode", applied.schoolCode);
     if (applied.olympiad) params.set("olympiad", applied.olympiad);
     if (applied.grade) params.set("grade", applied.grade);
+    return params;
+  }
+
+  async function openPrintPreview() {
+    clearExportError();
+    setPrintError("");
+    setPrintBusy(true);
     try {
       const res = await fetch(
-        `${getApiUrl()}/admin/school-registrations/students/export.print?${params}`,
+        `${getApiUrl()}/admin/school-registrations/students/export.print?${studentsExportParams()}`,
         { credentials: "include" },
       );
       if (!res.ok) {
@@ -305,6 +310,42 @@ function AdminStudentsPageInner() {
       setPrintError("Could not open print preview");
     } finally {
       setPrintBusy(false);
+    }
+  }
+
+  async function downloadAllSchoolsPdfZip() {
+    clearExportError();
+    setPrintError("");
+    setZipBusy(true);
+    try {
+      const res = await fetch(
+        `${getApiUrl()}/admin/school-registrations/students/export.pdf.zip?${studentsExportParams()}`,
+        { credentials: "include" },
+      );
+      if (!res.ok) {
+        let message = "Could not download school PDF zip";
+        try {
+          const body = (await res.json()) as { message?: string };
+          if (body.message?.trim()) message = body.message.trim();
+        } catch {
+          /* keep default */
+        }
+        setPrintError(message);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "i-cape-students-by-school.zip";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      setPrintError("Could not download school PDF zip");
+    } finally {
+      setZipBusy(false);
     }
   }
 
@@ -619,7 +660,7 @@ function AdminStudentsPageInner() {
           type="button"
           size="sm"
           variant="outline"
-          disabled={printBusy || exportBusy}
+          disabled={printBusy || exportBusy || zipBusy}
           onClick={() => void openPrintPreview()}
         >
           <Printer className="size-4" aria-hidden />
@@ -627,9 +668,20 @@ function AdminStudentsPageInner() {
         </Button>
         <Button
           type="button"
+          size="sm"
+          variant="outline"
+          disabled={zipBusy || exportBusy || printBusy}
+          onClick={() => void downloadAllSchoolsPdfZip()}
+          title="Download a ZIP with one PDF per school"
+        >
+          <Download className="size-4" aria-hidden />
+          {zipBusy ? "Building ZIP…" : "Download all PDFs (ZIP)"}
+        </Button>
+        <Button
+          type="button"
           variant="accent"
           size="sm"
-          disabled={exportBusy}
+          disabled={exportBusy || zipBusy}
           onClick={() => void startExport("pdf")}
         >
           <Download className="size-4" aria-hidden />
